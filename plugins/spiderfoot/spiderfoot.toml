@@ -1,0 +1,18 @@
+name = "spiderfoot"
+container = "slickchook-plugin/spiderfoot:local"
+description = "Runs bounded SpiderFoot passive OSINT collection for one authorized domain."
+fixed_args = ["-m", "sfp_dnsresolve,sfp_dnsraw"]
+
+[[options]]
+name = "target"
+description = "Authorized domain, hostname, or IP address."
+required = true
+flag = "-s"
+
+[docker]
+network = "bridge"
+memory = "1g"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=128m"]

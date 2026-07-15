@@ -1,0 +1,12 @@
+name = "osvscanner"
+container = "slickchook-plugin/osvscanner:local"
+description = "Scans staged dependency manifests and lockfiles against a bundled offline OSV database."
+fixed_args = ["scan", "source", "--offline", "--format", "json", "/input"]
+
+[docker]
+network = "none"
+memory = "768m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 600
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

@@ -1,0 +1,24 @@
+name = "dnsx"
+container = "projectdiscovery/dnsx:v1.2.2"
+description = "Resolves one authorized domain or hostname and reports DNS records and probe results."
+fixed_args = ["-silent", "-json"]
+
+[[options]]
+name = "target"
+description = "Authorized domain or hostname to resolve."
+required = true
+flag = "-d"
+
+[[options]]
+name = "record_type"
+description = "Optional record type, for example A, AAAA, MX, NS, or CNAME."
+required = false
+flag = "-query"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 64
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]

@@ -1,0 +1,42 @@
+name = "httpx"
+container = "projectdiscovery/httpx:v1.9.0"
+description = "Runs the ProjectDiscovery HTTPX web probe (not the Python library) against one authorized target."
+fixed_args = ["-silent", "-disable-update-check"]
+
+[[options]]
+name = "target"
+description = "Authorized URL, hostname, or IP address to probe."
+required = true
+flag = "-target"
+
+[[options]]
+name = "status_code"
+description = "Include the HTTP response status code."
+required = false
+flag = "-status-code"
+
+[[options]]
+name = "title"
+description = "Include the HTML page title."
+required = false
+flag = "-title"
+
+[[options]]
+name = "tech_detect"
+description = "Include detected web technologies."
+required = false
+flag = "-tech-detect"
+
+[[options]]
+name = "rate_limit"
+description = "Maximum requests per second."
+required = false
+flag = "-rate-limit"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

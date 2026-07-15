@@ -1,0 +1,36 @@
+name = "nuclei"
+container = "slickchook-plugin/nuclei:local"
+description = "Runs ProjectDiscovery Nuclei against one authorized target using a plugin-owned full template bundle. Results are emitted as JSONL."
+fixed_args = ["-silent", "-disable-update-check", "-no-stdin", "-jsonl", "-t", "/opt/nuclei-templates"]
+
+[[options]]
+name = "target"
+description = "Authorized URL, hostname, IP address, or CIDR range to scan."
+required = true
+flag = "-u"
+
+[[options]]
+name = "severity"
+description = "Comma-separated severities, for example medium,high,critical."
+required = false
+flag = "-severity"
+
+[[options]]
+name = "tags"
+description = "Comma-separated template tags to include."
+required = false
+flag = "-tags"
+
+[[options]]
+name = "rate_limit"
+description = "Maximum requests per second."
+required = false
+flag = "-rate-limit"
+
+[docker]
+network = "bridge"
+memory = "1g"
+cpus = "1"
+pids_limit = 256
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=128m", "/.config:rw,noexec,nosuid,nodev,size=8m"]

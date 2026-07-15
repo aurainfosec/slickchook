@@ -1,0 +1,18 @@
+name = "kiterunner"
+container = "slickchook-plugin/kiterunner:local"
+description = "Discovers API routes using the bounded Kiterunner small route corpus."
+fixed_args = ["scan", "-w", "/opt/kiterunner/routes-small.kite", "-o", "json", "-x", "5", "-j", "10"]
+
+[[arguments]]
+name = "target"
+description = "One authorized HTTP or HTTPS API target."
+required = true
+position = 1
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m", "/.cache:rw,noexec,nosuid,nodev,size=16m"]

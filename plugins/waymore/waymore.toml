@@ -1,0 +1,37 @@
+name = "waymore"
+container = "slickchook-plugin/waymore:local"
+description = "Collects archived URLs for one authorized domain using Waymore URL-only streaming mode with bounded source requests."
+fixed_args = ["-mode", "U", "--stream", "-lcc", "1", "-lr", "500"]
+
+[[options]]
+name = "target"
+description = "Authorized domain, without a URL scheme."
+required = true
+flag = "-i"
+
+[[options]]
+name = "no_subdomains"
+description = "Return results only for the exact target domain."
+required = false
+flag = "--no-subs"
+
+[[options]]
+name = "from_date"
+description = "Earliest archive date in YYYY, YYYYMM, or YYYYMMDD form."
+required = false
+flag = "-from"
+
+[[options]]
+name = "to_date"
+description = "Latest archive date in YYYY, YYYYMM, or YYYYMMDD form."
+required = false
+flag = "-to"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=128m"]
+

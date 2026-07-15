@@ -1,0 +1,18 @@
+name = "gospider"
+container = "slickchook-plugin/gospider:local"
+description = "Crawls one authorized HTTP or HTTPS target with bounded depth and concurrency."
+fixed_args = ["-c", "5", "-d", "2", "--json"]
+
+[[options]]
+name = "target"
+description = "Authorized HTTP or HTTPS URL to crawl."
+required = true
+flag = "-s"
+
+[docker]
+network = "bridge"
+memory = "768m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

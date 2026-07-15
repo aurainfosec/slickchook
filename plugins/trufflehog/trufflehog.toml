@@ -1,0 +1,17 @@
+name = "trufflehog"
+container = "trufflesecurity/trufflehog:latest"
+description = "Scans one explicitly authorized public repository or filesystem target for exposed secrets."
+fixed_args = ["filesystem", "--no-update", "--json"]
+
+[[options]]
+name = "target"
+description = "Authorized local path or repository URL."
+required = true
+
+[docker]
+network = "none"
+memory = "1g"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=128m"]

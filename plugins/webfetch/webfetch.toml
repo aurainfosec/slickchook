@@ -1,0 +1,19 @@
+name = "webfetch"
+container = "slickchook-plugin/webfetch:local"
+description = "Fetches one explicitly authorized HTTP(S) URL into the per-run input staging directory for offline analysis."
+fixed_args = ["-q", "--no-check-certificate", "--timeout=20", "--tries=1", "-O", "/input/index.html"]
+
+[[arguments]]
+name = "target"
+description = "Authorized HTTP or HTTPS URL to fetch."
+required = true
+position = 1
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 60
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
+input_read_only = false

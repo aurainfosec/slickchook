@@ -1,0 +1,33 @@
+name = "testssl"
+container = "drwetter/testssl.sh:latest"
+description = "Runs testssl.sh against a single TLS endpoint. Provide target as a hostname, IP address, URL, or host:port value. The MCP response includes a bounded stdout/stderr preview plus artifact paths. Full stdout, stderr, a pretty JSON report, and an HTML report are stored under the run artifact directory."
+fixed_args = [
+  "--warnings",
+  "batch",
+  "--color",
+  "0",
+  "--jsonfile-pretty",
+  "/artifacts/result.json",
+  "--htmlfile",
+  "/artifacts/report.html",
+]
+
+[[arguments]]
+name = "target"
+description = "TLS endpoint to scan, for example example.com, example.com:443, https://example.com, or 192.0.2.10:443."
+required = true
+position = 1
+
+[[options]]
+name = "fast"
+description = "Run a faster scan with fewer checks."
+required = false
+flag = "--fast"
+
+[docker]
+network = "bridge"
+memory = "1g"
+cpus = "1"
+pids_limit = 256
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

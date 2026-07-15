@@ -1,0 +1,44 @@
+name = "naabu"
+container = "projectdiscovery/naabu:v2.6.1"
+description = "Runs ProjectDiscovery Naabu in unprivileged TCP CONNECT mode against one authorized target."
+fixed_args = ["-silent"]
+
+[[options]]
+name = "scan_type"
+description = "Scan method: c for TCP CONNECT or s for SYN (requires NET_RAW)."
+required = false
+flag = "-scan-type"
+default = "s"
+
+[[options]]
+name = "target"
+description = "Authorized hostname, IP address, or CIDR range to scan."
+required = true
+flag = "-host"
+
+[[options]]
+name = "ports"
+description = "Ports or ranges to scan, for example 80,443 or 1-1024."
+required = false
+flag = "-port"
+
+[[options]]
+name = "top_ports"
+description = "Naabu top-port set: 100, 1000, or full."
+required = false
+flag = "-top-ports"
+
+[[options]]
+name = "rate"
+description = "Maximum connection attempts per second."
+required = false
+flag = "-rate"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 600
+cap_add = ["NET_RAW"]
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

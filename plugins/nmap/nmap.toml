@@ -1,0 +1,43 @@
+name = "nmap"
+container = "instrumentisto/nmap:7.98-r2"
+description = "Runs bounded Nmap scans against one authorized target, including optional raw-packet and non-authenticated SSH NSE checks."
+fixed_args = ["-sT"]
+
+[[arguments]]
+name = "target"
+description = "Authorized hostname, IP address, or CIDR range to scan."
+required = true
+position = 1
+
+[[options]]
+name = "ports"
+description = "Ports or ranges accepted by Nmap, for example 22,80,443 or 1-1024."
+required = false
+flag = "-p"
+
+[[options]]
+name = "service_detection"
+description = "Probe open ports to identify services and versions."
+required = false
+flag = "-sV"
+
+[[options]]
+name = "fast_timing"
+description = "Use Nmap's T4 timing template."
+required = false
+flag = "-T4"
+
+[[options]]
+name = "ssh_checks"
+description = "Run non-authenticated SSH algorithm and authentication-method enumeration scripts."
+required = false
+flag = "--script"
+default = "ssh2-enum-algos,ssh-auth-methods"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 600
+cap_add = ["NET_RAW"]

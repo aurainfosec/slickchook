@@ -1,0 +1,22 @@
+[Unit]
+Description=Slickchook MCP server
+Wants=docker.service
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=slickchook
+Group=slickchook
+WorkingDirectory=/var/lib/slickchook
+Environment=SLICKCHOOK_RUNNER=/opt/slickchook/slickchook-runner
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/slickchook/slickchook
+Restart=on-failure
+RestartSec=5s
+UMask=0027
+
+# The runner relies on its setgid bit to obtain Docker socket access.
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

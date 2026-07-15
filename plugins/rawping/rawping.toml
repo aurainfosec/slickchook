@@ -1,0 +1,19 @@
+name = "rawping"
+container = "alpine:3.22"
+description = "Sends three ICMP echo requests to an authorized target as a focused verification of the runner's NET_RAW capability policy."
+fixed_args = ["ping", "-c", "3", "-W", "3"]
+
+[[arguments]]
+name = "target"
+description = "Authorized hostname or IP address to ping."
+required = true
+position = 1
+
+[docker]
+network = "bridge"
+memory = "64m"
+cpus = "0.25"
+pids_limit = 32
+timeout_seconds = 30
+cap_add = ["NET_RAW"]
+

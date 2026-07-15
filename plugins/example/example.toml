@@ -1,0 +1,22 @@
+name = "example"
+container = "example/tool:latest"
+description = "Example plugin manifest. Accepts a target and optional verbose flag. Produces stdout and stderr artifacts for each run."
+
+[[arguments]]
+name = "target"
+description = "Hostname, domain, IP address, or URL for the tool to inspect."
+required = true
+position = 1
+
+[[options]]
+name = "verbose"
+description = "Request more detailed output from the tool."
+required = false
+flag = "--verbose"
+
+[docker]
+network = "none"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300

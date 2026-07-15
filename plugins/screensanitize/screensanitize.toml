@@ -1,0 +1,12 @@
+name = "screensanitize"
+container = "slickchook-plugin/screensanitize:local"
+description = "Sanitizes staged screenshots and emits untrusted structured OCR and prompt-injection indicators."
+fixed_args = ["--input", "/input", "--output", "/artifacts/sanitized.json"]
+
+[docker]
+network = "none"
+memory = "768m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

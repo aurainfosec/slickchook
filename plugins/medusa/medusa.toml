@@ -1,0 +1,42 @@
+name = "medusa"
+container = "slickchook-plugin/medusa:local"
+description = "Verifies one supplied credential against one explicitly authorized service using Medusa. Credentials are retained in Slickchook run history and must be test-only values, never production secrets."
+fixed_args = ["-f", "-t", "1", "-T", "1"]
+
+[[options]]
+name = "host"
+description = "Authorized hostname or IP address."
+required = true
+flag = "-h"
+
+[[options]]
+name = "username"
+description = "Single test username. This value is retained in run history."
+required = true
+flag = "-u"
+
+[[options]]
+name = "password"
+description = "Single test password. This value is retained in run history."
+required = true
+flag = "-p"
+
+[[options]]
+name = "module"
+description = "Medusa module for the authorized service, for example ssh or ftp."
+required = true
+flag = "-M"
+
+[[options]]
+name = "port"
+description = "Override the service port."
+required = false
+flag = "-n"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 64
+timeout_seconds = 120
+

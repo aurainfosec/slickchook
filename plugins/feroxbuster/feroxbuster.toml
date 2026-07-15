@@ -1,0 +1,36 @@
+name = "feroxbuster"
+container = "slickchook-plugin/feroxbuster:local"
+description = "Performs a bounded, non-recursive Feroxbuster content-discovery check against one explicitly authorized URL using the package's small reviewable wordlist."
+fixed_args = ["--silent", "--no-recursion", "--threads", "10", "--rate-limit", "20", "--wordlist", "/wordlist.txt"]
+
+[[options]]
+name = "target"
+description = "Authorized HTTP or HTTPS base URL."
+required = true
+flag = "--url"
+
+[[options]]
+name = "extensions"
+description = "Comma-separated file extensions, for example js,html,php."
+required = false
+flag = "--extensions"
+
+[[options]]
+name = "status_codes"
+description = "Comma-separated response status codes to include."
+required = false
+flag = "--status-codes"
+
+[[options]]
+name = "insecure"
+description = "Disable TLS certificate validation for an authorized test target."
+required = false
+flag = "--insecure"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

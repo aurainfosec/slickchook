@@ -1,0 +1,36 @@
+name = "subfinder"
+container = "projectdiscovery/subfinder:v2.14.0"
+description = "Performs passive subdomain enumeration for one authorized domain using ProjectDiscovery Subfinder."
+fixed_args = ["-silent", "-disable-update-check"]
+
+[[options]]
+name = "target"
+description = "Authorized root domain to enumerate."
+required = true
+flag = "-domain"
+
+[[options]]
+name = "all_sources"
+description = "Use all available passive sources, including slower sources."
+required = false
+flag = "-all"
+
+[[options]]
+name = "recursive_sources"
+description = "Use only passive sources capable of recursive enumeration."
+required = false
+flag = "-recursive"
+
+[[options]]
+name = "rate_limit"
+description = "Maximum HTTP requests per second."
+required = false
+flag = "-rate-limit"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 600
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.config:rw,noexec,nosuid,nodev,size=8m"]

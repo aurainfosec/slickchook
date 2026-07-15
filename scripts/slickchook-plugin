@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly SERVICE="slickchook.service"
+readonly SERVICE_GROUP="slickchook"
+readonly PLUGIN_ROOT="/var/lib/slickchook/plugins"
+readonly BACKUP_ROOT="/var/backups/slickchook/plugin-packages"
+readonly LOCK_FILE="/run/lock/slickchook-plugin.lock"
+
+STAGE=""
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  slickchook-plugin install <plugin-directory> [plugin-name]
+  slickchook-plugin remove <plugin-name>
+  slickchook-plugin list
+
+A plugin package is a directory named for the plugin and containing a matching
+<plugin-name>.toml manifest. Installs and removals are validated by restarting
+the MCP service; a failed service start automatically rolls back the change.
+EOF
+}
+
+cleanup() {
+  if [[ -n ${STAGE} && -d ${STAGE} ]]; then
+    rm -rf -- "${STAGE}"
+  fi
+}
+
+trap cleanup EXIT
+
+valid_name() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]
+}
+
+timestamped_backup() {
+  local name=$1
+  printf '%s/%s-%s-%s' "${BACKUP_ROOT}" "${name}" "$(date -u +%Y%m%dT%H%M%SZ)" "$$"
+}
+
+normalize_package() {
+  local directory=$1
+  chown -R root:"${SERVICE_GROUP}" "${directory}"
+  find "${directory}" -type d -exec chmod 0750 {} +
+  find "${directory}" -type f -exec chmod 0640 {} +
+}
+
+restart_service() {
+  systemctl restart "${SERVICE}"
+  systemctl is-active --quiet "${SERVICE}"
+}
+
+install_plugin() {
+  local source=$1
+  local name=${2:-$(basename -- "${source}")}
+  local destination backup local_image rollback_image had_previous=false had_previous_image=false
+
+  valid_name "${name}" || die "invalid plugin name: ${name}"
+  [[ -d ${source} ]] || die "plugin directory does not exist: ${source}"
+  source=$(cd -- "${source}" && pwd)
+  [[ -f ${source}/${name}.toml ]] \
+    || die "plugin package must contain ${name}.toml"
+  if find "${source}" -mindepth 1 ! -type f ! -type d -print -quit | grep -q .; then
+    die "plugin packages may contain only regular files and directories"
+  fi
+
+  destination="${PLUGIN_ROOT}/${name}"
+  backup=$(timestamped_backup "${name}")
+  STAGE=$(mktemp -d "/var/lib/slickchook/.plugin-stage-${name}.XXXXXX")
+  cp -a "${source}/." "${STAGE}/"
+  normalize_package "${STAGE}"
+
+  if [[ -f ${STAGE}/Dockerfile ]]; then
+    local_image="slickchook-plugin/${name}:local"
+    rollback_image="slickchook-plugin/${name}:rollback-$$"
+    grep -Eq "^container[[:space:]]*=[[:space:]]*\"${local_image}\"[[:space:]]*$" \
+      "${STAGE}/${name}.toml" \
+      || die "a package with a Dockerfile must declare container = \"${local_image}\""
+    if docker image inspect "${local_image}" >/dev/null 2>&1; then
+      docker tag "${local_image}" "${rollback_image}"
+      had_previous_image=true
+    fi
+    echo "Building plugin-owned image ${local_image}."
+    docker build --pull --tag "${local_image}" "${STAGE}"
+  fi
+
+  systemctl stop "${SERVICE}"
+  if [[ -e ${destination} ]]; then
+    install -d -o root -g root -m 0700 "${BACKUP_ROOT}"
+    mv "${destination}" "${backup}"
+    had_previous=true
+  fi
+  mv "${STAGE}" "${destination}"
+  STAGE=""
+
+  if ! restart_service; then
+    echo "Plugin validation failed; rolling back ${name}." >&2
+    systemctl stop "${SERVICE}" || true
+    install -d -o root -g root -m 0700 "${BACKUP_ROOT}"
+    mv "${destination}" "${backup}.failed"
+    if [[ ${had_previous} == true ]]; then
+      mv "${backup}" "${destination}"
+    fi
+    if [[ ${had_previous_image} == true ]]; then
+      docker tag "${rollback_image}" "${local_image}"
+    fi
+    systemctl start "${SERVICE}" || true
+    die "${name} was not installed; inspect journalctl -u ${SERVICE}"
+  fi
+
+  if [[ ${had_previous_image} == true ]]; then
+    docker image rm "${rollback_image}" >/dev/null || true
+  fi
+
+  echo "Installed plugin ${name}."
+  if [[ ${had_previous} == true ]]; then
+    echo "Previous package: ${backup}"
+  fi
+}
+
+remove_plugin() {
+  local name=$1
+  local destination backup
+
+  valid_name "${name}" || die "invalid plugin name: ${name}"
+  destination="${PLUGIN_ROOT}/${name}"
+  [[ -d ${destination} ]] || die "plugin is not installed: ${name}"
+  backup=$(timestamped_backup "${name}")
+  install -d -o root -g root -m 0700 "${BACKUP_ROOT}"
+
+  systemctl stop "${SERVICE}"
+  mv "${destination}" "${backup}"
+  if ! restart_service; then
+    echo "Service validation failed; restoring ${name}." >&2
+    systemctl stop "${SERVICE}" || true
+    mv "${backup}" "${destination}"
+    systemctl start "${SERVICE}" || true
+    die "${name} was not removed; inspect journalctl -u ${SERVICE}"
+  fi
+
+  echo "Removed plugin ${name}. Backup: ${backup}"
+}
+
+[[ ${EUID} -eq 0 ]] || die "run as root (for example: sudo slickchook-plugin ...)"
+command -v flock >/dev/null || die "flock is required (install util-linux)"
+getent group "${SERVICE_GROUP}" >/dev/null || die "Slickchook is not installed"
+systemctl cat "${SERVICE}" >/dev/null 2>&1 || die "${SERVICE} is not installed"
+install -d -o root -g "${SERVICE_GROUP}" -m 0750 "${PLUGIN_ROOT}"
+
+exec 9>"${LOCK_FILE}"
+flock -x 9
+
+case ${1:-} in
+  install)
+    [[ $# -ge 2 && $# -le 3 ]] || { usage; exit 2; }
+    install_plugin "$2" "${3:-}"
+    ;;
+  remove)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    remove_plugin "$2"
+    ;;
+  list)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    find "${PLUGIN_ROOT}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
