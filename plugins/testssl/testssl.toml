@@ -6,6 +6,7 @@ fixed_args = [
   "batch",
   "--color",
   "0",
+  "--append",
   "--jsonfile-pretty",
   "/artifacts/result.json",
   "--htmlfile",

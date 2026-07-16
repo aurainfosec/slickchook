@@ -1,2 +1,71 @@
-/target
-/artifacts
+# Rust build output
+/target/
+/dist/
+*.deb
+*.rpm
+*.tar
+*.tar.gz
+
+# Runtime data and local databases
+/artifacts/
+/var/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.env
+!.env.example
+*.token
+*.jwt
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.secret
+*credentials*
+*password*
+*passwd*
+*secret*
+/etc/slickchook/
+
+# SSH, TLS, cloud, and local credential material
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.kubeconfig
+.aws/
+.docker/
+.config/gcloud/
+
+# Local backups and generated reports
+/backups/
+*.bak
+*.dump
+*.sql.gz
+*.log
+*.core
+core
+core.*
+
+# Dependency and tool caches
+node_modules/
+.npm/
+.cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

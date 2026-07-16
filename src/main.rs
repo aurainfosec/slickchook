@@ -180,28 +180,50 @@ fn server_info() -> ServerInfo {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+#[derive(Debug, Deserialize)]
+struct AppConfig {
+    #[serde(default = "default_bind_addr")]
+    bind_addr: String,
+}
+
+fn default_bind_addr() -> String {
+    "127.0.0.1:8080".to_string()
+}
+
+fn load_config() -> anyhow::Result<AppConfig> {
+    let path = std::env::var("SLICKCHOOK_CONFIG").unwrap_or_else(|_| "slickchook.toml".into());
+    if !std::path::Path::new(&path).exists() {
+        return Ok(AppConfig {
+            bind_addr: default_bind_addr(),
+        });
+    }
+    Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let bind_addr = "127.0.0.1:8080";
+    let config = load_config()?;
+    let bind_addr = config.bind_addr;
     let plugin_manager = Arc::new(PluginManager::new(
         "plugins",
         "artifacts",
         "artifacts/plugin_runs.sqlite3",
     )?);
 
-    let service_plugin_manager = Arc::clone(&plugin_manager);
-    let _ct = SseServer::serve(bind_addr.parse()?)
-        .await?
-        .with_service(move || ReconServer::new(Arc::clone(&service_plugin_manager)));
+    tokio::runtime::Runtime::new()?.block_on(async move {
+        let service_plugin_manager = Arc::clone(&plugin_manager);
+        let _ct = SseServer::serve(bind_addr.parse()?)
+            .await?
+            .with_service(move || ReconServer::new(Arc::clone(&service_plugin_manager)));
 
-    println!("MCP SSE server running at http://{}/sse", bind_addr);
-    println!("Press Ctrl+C to stop.");
+        println!("MCP SSE server running at http://{}/sse", bind_addr);
+        println!("Press Ctrl+C to stop.");
 
-    tokio::signal::ctrl_c().await?;
+        tokio::signal::ctrl_c().await?;
 
-    Ok(())
+        Ok(())
+    })
 }
 
 #[cfg(test)]

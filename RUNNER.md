@@ -13,6 +13,9 @@ root-equivalent.
 These instructions assume:
 
 - Ubuntu Server with Docker Engine already installed and running;
+- PostgreSQL packages are installed and the local service is enabled by the
+  installer for the upcoming durable backend; SQLite remains the active
+  Slickchook backend until migration validation is complete;
 - the repository is the current directory; and
 - Rust is installed on the build machine.
 
@@ -129,10 +132,13 @@ the service cannot rewrite runner policy:
 
 ```bash
 sudo install -d -o root -g slickchook -m 0750 /var/lib/slickchook/plugins
-sudo cp -a plugins/. /var/lib/slickchook/plugins/
-sudo chown -R root:slickchook /var/lib/slickchook/plugins
-sudo find /var/lib/slickchook/plugins -type d -exec chmod 0750 {} +
-sudo find /var/lib/slickchook/plugins -type f -exec chmod 0640 {} +
+# Install each plugin through the policy-validating installer; pass the source
+# directory, not just the plugin name. This preserves root ownership and
+# validates the manifest before it becomes live policy.
+sudo /usr/local/sbin/slickchook-plugin install /path/to/slickchook/plugins/nmap
+
+Repeat for each plugin you want to enable. The installed copy is then visible
+under `/var/lib/slickchook/plugins`; do not edit that live tree directly.
 
 sudo install -d -o slickchook -g slickchook -m 0750 \
   /var/lib/slickchook/artifacts
@@ -155,6 +161,13 @@ the artifacts tree.
 ## 5. Install the systemd service
 
 Create `/etc/systemd/system/slickchook.service`:
+
+The installer also creates `/etc/slickchook/slickchook.toml` (root:slickchook,
+0640) and the unit loads it through `SLICKCHOOK_CONFIG`. Set the listener port there:
+
+```toml
+bind_addr = "127.0.0.1:18080"
+```
 
 ```ini
 [Unit]

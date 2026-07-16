@@ -1,13 +1,16 @@
 -- Slickchook PostgreSQL schema. Apply with a migration tool, not manually.
 CREATE TABLE IF NOT EXISTS plugin_runs (
-    run_id UUID PRIMARY KEY,
+    run_id TEXT PRIMARY KEY,
     plugin TEXT NOT NULL,
+    container TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
     exit_code INTEGER,
     input_json JSONB NOT NULL,
     artifact_dir TEXT NOT NULL,
     stdout_artifact TEXT NOT NULL,
     stderr_artifact TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

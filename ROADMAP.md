@@ -1,6 +1,10 @@
 # Slickchook roadmap
 
-Updated: 2026-07-15
+Updated: 2026-07-16
+
+This roadmap covers Slickchook server, runner, plugin, persistence, security,
+and deployment capabilities only. It does not contain findings or work items
+for any assessed target environment.
 
 ## Attack-surface orchestration
 
@@ -16,6 +20,10 @@ Updated: 2026-07-15
 - [ ] Cache DNS, HTTP, certificate, and technology results with timestamps.
 - [ ] Track plugin/image versions, digests, options, target, and provenance.
 - [ ] Emit a normalized attack-surface inventory alongside raw artifacts.
+- [ ] Add authenticated, server-side artifact listing and bounded read APIs
+  scoped by target/run, with canonical-root checks, MIME/size limits, audit
+  logging, and explicit untrusted-content labeling; do not expose the entire
+  artifact tree through a general-purpose plugin.
 - [ ] Support incremental rescans based on changed assets.
 - [ ] Add scheduled monitoring and change detection.
 

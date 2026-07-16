@@ -172,6 +172,24 @@ The PostgreSQL migration is staged and does not yet replace SQLite. Until the
 repository backend and migration tooling are complete, deployments must not
 assume the PostgreSQL schema is active or point production at it manually.
 
+Database configuration must not be hard-coded in manifests or source. The
+installer provisions a dedicated non-superuser role and database, and writes
+non-secret connection settings to `/etc/slickchook/postgres.env`, owned by
+`root:slickchook` with mode `0640`. Passwords, if later required for remote
+connections, must be supplied out-of-band through a secret manager or protected
+deployment mechanism.
+
+### SC-009: Backup archives in repository history
+
+Status: Mitigated in working tree; historical exposure requires review  
+Severity: High if archives contain credentials or sensitive artifacts
+
+Backup archives were previously tracked by Git. They are now ignored and
+removed from the current index, but may remain in existing commits or remote
+clones. Review archive contents, rotate any exposed credentials, and rewrite
+remote history when necessary. Do not add runtime databases, artifacts, or
+backups to source control.
+
 The `screensanitize` plugin strips metadata through re-encoding,
 re-encodes images, performs multi-scale OCR, detects hidden/low-contrast text,
 and flags encoded forms such as Base64, Morse, Braille, QR codes, and suspicious
@@ -208,3 +226,19 @@ OSV-Scanner bundles an OSV database into its image so runtime analysis does not
 require network access. The scanner and database snapshot must be updated and
 reviewed together. Rebuild with `--no-cache`, record the source revision and
 image digest, and keep analyzer networking disabled.
+### SC-010: PostgreSQL adapter remains opt-in
+
+The new `PostgresStore` uses parameterized queries and the same canonical artifact-root
+checks as SQLite. It is not enabled by default; keep `SLICKCHOOK_STORAGE_BACKEND=sqlite`
+until a deployed PostgreSQL integration test and migration review are complete.
+
+### SC-011: WebSocket probe scope
+
+Status: Controlled
+Severity: Medium
+
+The websocat plugin is limited to a short handshake/connectivity probe and does
+not send application messages or credentials. Only explicitly authorized
+`ws://` or `wss://` endpoints should be supplied. Treat handshake output as
+untrusted artifact data and do not infer authorization or message-level safety
+from a successful connection alone.

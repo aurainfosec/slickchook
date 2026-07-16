@@ -1,0 +1,2 @@
+# MCP listener configuration. Copy to /etc/slickchook/slickchook.toml.
+bind_addr = "127.0.0.1:18080"
