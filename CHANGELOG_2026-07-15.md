@@ -128,6 +128,18 @@ dated entry to this changelog file.
   cache initialization.
 - Corrected the GraphQL checker image to use the only published
   `graphql-cop` package version, `0.0.1`.
+- Updated the Ubuntu installer to install and enable local PostgreSQL and its
+  client tools as a deployment prerequisite; runtime cutover remains disabled.
+- Updated installation provisioning to create the idempotent local database
+  `slickchook_db`; adapter integration tests may use a temporary PostgreSQL
+  container.
+- Added least-privilege PostgreSQL role provisioning and restricted
+  `/etc/slickchook/postgres.env` configuration storage; no credentials are
+  hard-coded.
+- Hardened `.gitignore` for Rust artifacts, local databases, backups,
+  environment files, certificates, keys, credentials, logs, and editor files.
+- Added `SC-009` documenting previously tracked backup archives, Git-history
+  exposure, credential rotation, and history-rewrite requirements.
 - Changed the GraphQL checker entrypoint to invoke the package as a Python
   module because it does not publish a `graphql-cop` console script.
 - Replaced the unusable GraphQL package wrapper with a self-contained,
@@ -171,3 +183,42 @@ dated entry to this changelog file.
   timestamps required by the existing PluginManager schema.
 - Made the build-time seed scan tolerate exit code `1`, which means the
   database loaded successfully and findings were reported.
+# PostgreSQL adapter
+
+- Added an opt-in `PostgresStore` using `tokio-postgres`, with schema initialization,
+  parameterized run upserts, and the same artifact-root traversal protections as SQLite.
+- PostgreSQL remains staged and is not selected by `PluginManager` until migration/integration
+  testing is complete; SQLite remains the default backend.
+- Added an opt-in PostgreSQL round-trip test via `TEST_POSTGRES_URL`; verified successfully
+  against PostgreSQL 16.
+- Expanded PostgreSQL coverage for reopen/persistence, missing runs, artifact-root escapes,
+  and Unix symlink escapes; all checks pass.
+- Wired explicit PostgreSQL backend selection into `PluginManager`; SQLite remains the default,
+  and the manager retains its storage runtime so PostgreSQL connections remain alive.
+- Corrected application startup so synchronous backend initialization occurs before the Tokio MCP
+  runtime starts, avoiding nested-runtime and runtime-shutdown panics.
+- Added TOML-configurable MCP listener binding via `SLICKCHOOK_CONFIG` with a
+  `slickchook.toml.example` using port 18080.
+- Updated the Ubuntu installer and systemd unit to provision and load the protected
+  `/etc/slickchook/slickchook.toml` listener configuration.
+- Adjusted the testssl plugin to append safely when its report output already exists,
+  preventing fixed-path artifact collisions across reruns.
+- Enhanced the static-analysis checker to flag JavaScript/JSON extension and content-type
+  mismatches and Angular SPA fallback responses as routing anomalies.
+- Reduced MCP diagnostic noise by filtering carriage-return progress bars from stderr previews,
+  making large Kiterunner route results easier to read while retaining full artifacts.
+- Updated the systemd unit to load `/etc/slickchook/postgres.env`, preventing an unintended
+  fallback to SQLite when PostgreSQL deployment settings are present.
+- Updated fresh Ubuntu installs to create a least-privilege PostgreSQL role matching the
+  `slickchook` service account and activate PostgreSQL by default.
+- Corrected the Ubuntu installer to generate a random PostgreSQL role password and a complete
+  loopback `DATABASE_URL`, matching the tokio-postgres connection requirements.
+- Updated runner documentation to install plugin manifests through the policy-validating
+  installer and clarified repository versus live plugin directories.
+- Corrected graphqlcheck to use GET for static JavaScript, JSON, map, CSS, and manifest assets;
+  GraphQL endpoint checks continue to use POST introspection.
+- Added a bounded `websocat` plugin for read-only WebSocket handshake and connectivity probes.
+- Corrected the websocat image reference to the upstream GitHub Container Registry image;
+  the Docker Hub `vi/websocat` repository does not exist.
+- Added an explicit opt-in websocat `insecure` input for testing endpoints with known
+  certificate validation failures; verification remains enabled by default.

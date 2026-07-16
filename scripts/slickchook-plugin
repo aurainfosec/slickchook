@@ -51,6 +51,23 @@ normalize_package() {
   find "${directory}" -type f -exec chmod 0640 {} +
 }
 
+check_container_image() {
+  local manifest=$1 name=$2 image
+  image=$(sed -n 's/^container[[:space:]]*=[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' "${manifest}" | head -1)
+  [[ -n ${image} ]] || die "${name} manifest has no container image"
+  [[ ${image} != *$'\n'* && ${image} != *$'\r'* ]] || die "invalid container image in ${name} manifest"
+  if ! docker image inspect "${image}" >/dev/null 2>&1; then
+    echo "Required container image is not present: ${image}" >&2
+    echo "Build or pull it before installing:" >&2
+    if [[ -f ${STAGE}/Dockerfile ]]; then
+      echo "  sudo docker build --pull -t ${image} ${source}" >&2
+    else
+      echo "  sudo docker pull ${image}" >&2
+    fi
+    die "container image unavailable for ${name}"
+  fi
+}
+
 restart_service() {
   systemctl restart "${SERVICE}"
   systemctl is-active --quiet "${SERVICE}"
@@ -88,6 +105,8 @@ install_plugin() {
     fi
     echo "Building plugin-owned image ${local_image}."
     docker build --pull --tag "${local_image}" "${STAGE}"
+  else
+    check_container_image "${STAGE}/${name}.toml" "${name}"
   fi
 
   systemctl stop "${SERVICE}"

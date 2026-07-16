@@ -1,4 +1,4 @@
-use crate::storage::{RunStore, SqliteStore, StorageBackend};
+use crate::storage::{PostgresStore, RunStore, SqliteStore, StorageBackend};
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ const DEFAULT_TIMEOUT_SECONDS: u64 = 300;
 pub struct PluginManager {
     plugins_dir: PathBuf,
     artifacts_dir: PathBuf,
-    store: Arc<SqliteStore>,
+    store: Arc<dyn RunStore>,
     runner_path: PathBuf,
     plugins: Arc<RwLock<HashMap<String, Plugin>>>,
 }
@@ -146,27 +146,31 @@ pub struct PluginRunResult {
 impl PluginManager {
     /// Resolve a completed run's staged input directory without accepting an
     /// arbitrary filesystem path from an MCP caller.
-    pub fn resolve_input_run(&self, run_id: &str) -> Result<PathBuf> {
-        self.store.resolve_completed_input(run_id)
+    pub async fn resolve_input_run(&self, run_id: &str) -> Result<PathBuf> {
+        self.store.resolve_completed_input(run_id).await
     }
     pub fn new(
         plugins_dir: impl Into<PathBuf>,
         artifacts_dir: impl Into<PathBuf>,
         db_path: impl Into<PathBuf>,
     ) -> Result<Self> {
-        if StorageBackend::from_env()? == StorageBackend::Postgres {
-            bail!(
-                "PostgreSQL backend is not implemented yet; leave SLICKCHOOK_STORAGE_BACKEND unset or set it to sqlite"
-            );
-        }
         let plugins_dir = plugins_dir.into();
         let artifacts_dir = artifacts_dir.into();
         let db_path = db_path.into();
-        let store = Arc::new(SqliteStore {
-            db_path: db_path.clone(),
-            artifacts_root: artifacts_dir.clone(),
-        });
-        store.init_schema()?;
+        let backend = StorageBackend::from_env()?;
+        let runtime = tokio::runtime::Runtime::new()?;
+        let store: Arc<dyn RunStore> = match backend {
+            StorageBackend::Sqlite => Arc::new(SqliteStore {
+                db_path,
+                artifacts_root: artifacts_dir.clone(),
+            }),
+            StorageBackend::Postgres => {
+                let url = env::var("DATABASE_URL")
+                    .context("DATABASE_URL is required when SLICKCHOOK_STORAGE_BACKEND=postgres")?;
+                Arc::new(PostgresStore::connect_sync(&url, artifacts_dir.clone())?)
+            }
+        };
+        runtime.block_on(store.init_schema())?;
         let manager = Self {
             plugins_dir,
             artifacts_dir,
@@ -240,9 +244,10 @@ impl PluginManager {
             )
         })?;
 
-        let input_dir = input_run_id
-            .map(|id| self.resolve_input_run(id))
-            .transpose()?;
+        let input_dir = match input_run_id {
+            Some(id) => Some(self.resolve_input_run(id).await?),
+            None => None,
+        };
         let output = self
             .run_runner(&plugin, &artifact_dir, &input, input_dir.as_deref())
             .await;
@@ -289,7 +294,7 @@ impl PluginManager {
         write_artifact(&stderr_path, &stderr)?;
         let artifacts = list_artifacts(&artifact_dir)?;
         let stdout_preview = output_preview(&stdout);
-        let stderr_preview = output_preview(&stderr);
+        let stderr_preview = diagnostic_preview(&stderr);
 
         self.record_run(RunRecord {
             run_id: &run_id,
@@ -303,7 +308,8 @@ impl PluginManager {
             stderr_path: &stderr_path.to_string_lossy(),
             started_at: &started_at,
             finished_at: &finished_at,
-        })?;
+        })
+        .await?;
 
         Ok(PluginRunResult {
             run_id,
@@ -370,20 +376,22 @@ impl PluginManager {
             .with_context(|| format!("failed to run {}", self.runner_path.display()))
     }
 
-    fn record_run(&self, record: RunRecord<'_>) -> Result<()> {
-        self.store.record_run(&crate::storage::StoredRun {
-            run_id: record.run_id,
-            plugin: record.plugin_name,
-            container: record.container,
-            status: record.status,
-            exit_code: record.exit_code,
-            artifact_dir: Path::new(record.artifact_dir),
-            stdout_path: Path::new(record.stdout_path),
-            stderr_path: Path::new(record.stderr_path),
-            input_json: record.input,
-            started_at: record.started_at,
-            finished_at: record.finished_at,
-        })
+    async fn record_run(&self, record: RunRecord<'_>) -> Result<()> {
+        self.store
+            .record_run(&crate::storage::StoredRun {
+                run_id: record.run_id,
+                plugin: record.plugin_name,
+                container: record.container,
+                status: record.status,
+                exit_code: record.exit_code,
+                artifact_dir: Path::new(record.artifact_dir),
+                stdout_path: Path::new(record.stdout_path),
+                stderr_path: Path::new(record.stderr_path),
+                input_json: record.input,
+                started_at: record.started_at,
+                finished_at: record.finished_at,
+            })
+            .await
     }
 }
 
@@ -630,6 +638,16 @@ fn output_preview(bytes: &[u8]) -> String {
         preview.push_str("\n[output truncated; full output is available in artifacts]");
     }
     preview
+}
+
+fn diagnostic_preview(bytes: &[u8]) -> String {
+    let cleaned = String::from_utf8_lossy(bytes).replace('\r', "");
+    let lines: Vec<&str> = cleaned
+        .lines()
+        .filter(|line| !line.contains("|██") && !line.contains("it/s)"))
+        .collect();
+    let text = lines.join("\n");
+    output_preview(text.as_bytes())
 }
 
 fn write_artifact(path: &Path, bytes: &[u8]) -> Result<()> {

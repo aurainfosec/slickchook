@@ -62,6 +62,79 @@ the core source tree:
 sudo slickchook-plugin install /path/to/my-plugin
 ```
 
+Plugin directories have distinct source, package, and runtime locations:
+
+```text
+source checkout:       /home/user/slickchook/plugins/
+Debian package copy:   /usr/share/slickchook/plugins/
+live runtime policy:   /var/lib/slickchook/plugins/
+```
+
+The runner reads only the protected live runtime directory. The `.deb` includes
+plugin sources under `/usr/share/slickchook/plugins`, but does not implicitly
+enable every plugin. Install a bundled plugin explicitly:
+
+```bash
+sudo slickchook-plugin install /usr/share/slickchook/plugins/nmap
+```
+
+For an independently maintained plugin repository, install directly from its
+checked-out source directory:
+
+```bash
+sudo slickchook-plugin install /path/to/plugin-repository/plugins/nmap
+```
+
+After installation, verify the live copy with:
+
+```bash
+sudo slickchook-plugin list
+sudo find /var/lib/slickchook/plugins/nmap -maxdepth 1 -type f -printf '%f\n'
+```
+
+For plugins that use a prebuilt upstream image, refresh the image explicitly
+before installing the manifest:
+
+```bash
+IMAGE=$(sed -n 's/^container = "\(.*\)"/\1/p' /path/to/my-plugin/my-plugin.toml)
+sudo docker pull "$IMAGE"
+sudo slickchook-plugin install /path/to/my-plugin
+sudo systemctl restart slickchook.service
+```
+
+The installer verifies that the declared image is present. If it is missing,
+installation stops and prints the exact `docker pull` or `docker build` command
+needed to provide it.
+
+For plugins that include a `Dockerfile`, review it first. The plugin installer
+builds the image automatically, but only when the package contains a Dockerfile
+and the manifest declares the required local image name:
+
+```bash
+cd /path/to/my-plugin
+grep '^container = ' my-plugin.toml
+less Dockerfile
+sudo slickchook-plugin install /path/to/my-plugin
+sudo systemctl restart slickchook.service
+```
+
+The installer builds `slickchook-plugin/my-plugin:local` before replacing the
+live package and rolls back the package if service validation fails. To smoke
+test manually before installation, run the same `docker build` and `docker run`
+commands separately; the installer will rebuild from its staged, reviewed copy.
+
+After either workflow, verify that the live manifest and image agree:
+
+```bash
+sudo slickchook-plugin list
+sudo sed -n '1,160p' /var/lib/slickchook/plugins/my-plugin/my-plugin.toml
+sudo docker image inspect slickchook-plugin/my-plugin:local  # local-image plugins only
+```
+
+Use the local-image workflow only when the manifest declares a `:local` image;
+otherwise use the upstream `docker pull` workflow. Image pulls and builds are
+administrator actions and should be pinned and reviewed before production use.
+
 Run the same command with a newer checkout to update it. The command stages the
 package, normalizes it to root-owned read-only deployment permissions, backs up
 the previous version, restarts Slickchook to validate all manifests, and rolls
@@ -116,6 +189,9 @@ DATABASE_URL='postgresql://user:password@host/db' \
 Applying this schema does not migrate existing SQLite rows; do not switch a
 production service until the repository backend and data migration tooling are
 implemented and tested.
+
+The installer provisions a local PostgreSQL database named `slickchook_db` for
+the future backend. It does not activate that backend automatically.
 
 Kiterunner uses the small route corpus by default (about 35 MB unpacked). The
 large corpus is intentionally not bundled; publish it as a separately reviewed

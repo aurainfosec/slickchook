@@ -1,0 +1,24 @@
+name = "websocat"
+container = "ghcr.io/vi/websocat:nightly"
+description = "Performs a bounded WebSocket handshake probe against one explicitly authorized ws:// or wss:// endpoint without sending application payloads."
+fixed_args = ["--exit-on-eof", "--ping-interval", "5"]
+
+[[arguments]]
+name = "target"
+description = "Authorized WebSocket endpoint, for example wss://example.test/socket."
+required = true
+position = 1
+
+[[options]]
+name = "insecure"
+description = "Disable TLS certificate verification for authorized testing of endpoints with known certificate-chain problems."
+required = false
+flag = "--insecure"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 64
+timeout_seconds = 30
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
