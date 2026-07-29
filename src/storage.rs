@@ -88,7 +88,6 @@ impl RunStore for SqliteStore {
 pub struct PostgresStore {
     client: Client,
     pub artifacts_root: std::path::PathBuf,
-    _driver_runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
 }
 
 impl PostgresStore {
@@ -102,15 +101,23 @@ impl PostgresStore {
         Ok(Self {
             client,
             artifacts_root,
-            _driver_runtime: None,
         })
     }
 
-    pub fn connect_sync(database_url: &str, artifacts_root: std::path::PathBuf) -> Result<Self> {
-        let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new()?);
+    /// Connects using `handle` for both the initial handshake and the
+    /// long-lived connection-driving task, instead of owning a private
+    /// runtime. A private runtime would outlive this call and later get
+    /// dropped from inside `handle`'s own async context (e.g. on shutdown),
+    /// which panics: Tokio forbids dropping a runtime from within another
+    /// runtime's async task.
+    pub fn connect_sync(
+        handle: &tokio::runtime::Handle,
+        database_url: &str,
+        artifacts_root: std::path::PathBuf,
+    ) -> Result<Self> {
         let (client, connection) =
-            runtime.block_on(tokio_postgres::connect(database_url, NoTls))?;
-        runtime.spawn(async move {
+            handle.block_on(tokio_postgres::connect(database_url, NoTls))?;
+        handle.spawn(async move {
             if let Err(error) = connection.await {
                 tracing::error!(%error, "postgresql connection closed");
             }
@@ -118,7 +125,6 @@ impl PostgresStore {
         Ok(Self {
             client,
             artifacts_root,
-            _driver_runtime: Some(runtime),
         })
     }
 }

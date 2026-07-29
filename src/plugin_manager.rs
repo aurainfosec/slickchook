@@ -153,12 +153,12 @@ impl PluginManager {
         plugins_dir: impl Into<PathBuf>,
         artifacts_dir: impl Into<PathBuf>,
         db_path: impl Into<PathBuf>,
+        runtime: &tokio::runtime::Handle,
     ) -> Result<Self> {
         let plugins_dir = plugins_dir.into();
         let artifacts_dir = artifacts_dir.into();
         let db_path = db_path.into();
         let backend = StorageBackend::from_env()?;
-        let runtime = tokio::runtime::Runtime::new()?;
         let store: Arc<dyn RunStore> = match backend {
             StorageBackend::Sqlite => Arc::new(SqliteStore {
                 db_path,
@@ -167,7 +167,11 @@ impl PluginManager {
             StorageBackend::Postgres => {
                 let url = env::var("DATABASE_URL")
                     .context("DATABASE_URL is required when SLICKCHOOK_STORAGE_BACKEND=postgres")?;
-                Arc::new(PostgresStore::connect_sync(&url, artifacts_dir.clone())?)
+                Arc::new(PostgresStore::connect_sync(
+                    runtime,
+                    &url,
+                    artifacts_dir.clone(),
+                )?)
             }
         };
         runtime.block_on(store.init_schema())?;
