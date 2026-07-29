@@ -239,6 +239,13 @@ impl ServerHandler for ReconServer {
 fn server_info() -> ServerInfo {
     ServerInfo {
         capabilities: ServerCapabilities::builder().enable_tools().build(),
+        // `Implementation::default()` reports rmcp's own crate name/version (its
+        // `env!()` calls resolve at rmcp's build time, not ours), so it has to be
+        // set explicitly here to identify this server rather than the library.
+        server_info: Implementation {
+            name: "slickchook".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+        },
         instructions: Some(
             "HTTP MCP server for running recon plugins via JSON input/output.".into(),
         ),
@@ -267,6 +274,13 @@ fn load_config() -> anyhow::Result<AppConfig> {
 }
 
 fn main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--version")
+        || std::env::args().nth(1).as_deref() == Some("-V")
+    {
+        println!("slickchook {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     tracing_subscriber::fmt::init();
 
     let config = load_config()?;

@@ -57,3 +57,11 @@
   ROLE` but *before* the new password is ever written to disk. Found when
   this exact failure occurred during a real production redeploy. Fixed by
   putting the `printf` on a single line.
+- Bumped the crate version to `0.2.0` (from `0.1.0`, unchanged since the
+  initial commit) to reflect the breaking and feature changes above, and
+  added real version reporting: `slickchook --version` / `-V` and
+  `slickchook-runner --version` / `-V` print the running binary's version.
+  Also fixed the MCP `serverInfo` field, which reported `rmcp`'s own
+  build-time name/version (`Implementation::default()`'s `env!()` calls
+  resolve inside the `rmcp` crate, not ours) instead of Slickchook's; it now
+  explicitly reports `{"name":"slickchook","version":"0.2.0"}`.

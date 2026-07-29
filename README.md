@@ -68,6 +68,12 @@ orchestration, a safer static-analysis pipeline, and a multi-client MCP
 deployment (PostgreSQL-backed sessions, Streamable HTTP, OAuth 2.1) — and
 the dated `CHANGELOG_*.md` files for a record of what has shipped.
 
+`slickchook --version` / `slickchook-runner --version` report the running
+binary's version (from `Cargo.toml`); an MCP client sees the same value in
+`initialize`'s `serverInfo.version`. There's no other release/tagging
+process — the dated changelogs are the authoritative record of what shipped
+when.
+
 ## Getting started
 
 For a production deployment on Ubuntu Server, see
