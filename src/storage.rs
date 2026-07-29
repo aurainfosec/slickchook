@@ -77,6 +77,26 @@ where
     }
 }
 
+/// Establishes one client connection. Used for both the initial connect and
+/// later reconnects; `connect_sync` drives this synchronously itself via
+/// `handle.block_on(make_client(..))` rather than this function blocking.
+async fn make_client(database_url: &str, tls: DatabaseTls) -> Result<Client> {
+    let config = parse_config(database_url, tls)?;
+    match tls {
+        DatabaseTls::Disable => {
+            let (client, connection) = config.connect(NoTls).await?;
+            tokio::spawn(log_connection_errors(connection));
+            Ok(client)
+        }
+        DatabaseTls::Require => {
+            let connector = build_rustls_connector()?;
+            let (client, connection) = config.connect(connector).await?;
+            tokio::spawn(log_connection_errors(connection));
+            Ok(client)
+        }
+    }
+}
+
 pub struct StoredRun<'a> {
     pub run_id: &'a str,
     pub plugin: &'a str,
@@ -138,8 +158,18 @@ fn canonical_contained(root: &Path, candidate: impl AsRef<Path>) -> Result<PathB
 /// PostgreSQL-backed run store. Construction is asynchronous because tokio-postgres
 /// establishes the connection immediately; the connection driver is kept alive in a
 /// background task.
+///
+/// A `tokio_postgres::Client` never recovers on its own once its connection
+/// dies (network blip, PostgreSQL restart, idle timeout) -- every subsequent
+/// query fails with `Error::is_closed() == true` forever after, even though
+/// the rest of the process keeps running fine. `client` is therefore held
+/// behind a lock so it can be replaced in place: each query method retries
+/// once after calling `reconnect()`, but only when the failure is
+/// specifically a closed connection, not any other query error.
 pub struct PostgresStore {
-    client: Client,
+    client: tokio::sync::RwLock<Client>,
+    database_url: String,
+    tls: DatabaseTls,
     pub artifacts_root: std::path::PathBuf,
 }
 
@@ -149,22 +179,11 @@ impl PostgresStore {
         artifacts_root: std::path::PathBuf,
         tls: DatabaseTls,
     ) -> Result<Self> {
-        let config = parse_config(database_url, tls)?;
-        let client = match tls {
-            DatabaseTls::Disable => {
-                let (client, connection) = config.connect(NoTls).await?;
-                tokio::spawn(log_connection_errors(connection));
-                client
-            }
-            DatabaseTls::Require => {
-                let connector = build_rustls_connector()?;
-                let (client, connection) = config.connect(connector).await?;
-                tokio::spawn(log_connection_errors(connection));
-                client
-            }
-        };
+        let client = make_client(database_url, tls).await?;
         Ok(Self {
-            client,
+            client: tokio::sync::RwLock::new(client),
+            database_url: database_url.to_string(),
+            tls,
             artifacts_root,
         })
     }
@@ -181,43 +200,59 @@ impl PostgresStore {
         artifacts_root: std::path::PathBuf,
         tls: DatabaseTls,
     ) -> Result<Self> {
-        let config = parse_config(database_url, tls)?;
-        let client = match tls {
-            DatabaseTls::Disable => {
-                let (client, connection) = handle.block_on(config.connect(NoTls))?;
-                handle.spawn(log_connection_errors(connection));
-                client
-            }
-            DatabaseTls::Require => {
-                let connector = build_rustls_connector()?;
-                let (client, connection) = handle.block_on(config.connect(connector))?;
-                handle.spawn(log_connection_errors(connection));
-                client
-            }
-        };
+        let client = handle.block_on(make_client(database_url, tls))?;
         Ok(Self {
-            client,
+            client: tokio::sync::RwLock::new(client),
+            database_url: database_url.to_string(),
+            tls,
             artifacts_root,
         })
     }
 
+    /// Replaces the held client with a freshly connected one, using the same
+    /// `database_url`/`tls` this store was constructed with. Called only
+    /// after a query fails with `Error::is_closed()`, and serialized by
+    /// `client`'s write lock: concurrent callers that all observe the same
+    /// dead connection queue up here rather than each reconnecting
+    /// independently.
+    async fn reconnect(&self) -> Result<()> {
+        tracing::warn!("postgresql connection was closed; reconnecting");
+        let fresh = make_client(&self.database_url, self.tls).await?;
+        *self.client.write().await = fresh;
+        Ok(())
+    }
+
     pub async fn init_schema(&self) -> Result<()> {
-        self.client
-            .batch_execute(include_str!("../migrations/postgres/001_initial.sql"))
-            .await?;
-        self.client
-            .batch_execute(include_str!(
-                "../migrations/postgres/002_add_run_target.sql"
-            ))
-            .await?;
+        for migration in [
+            include_str!("../migrations/postgres/001_initial.sql"),
+            include_str!("../migrations/postgres/002_add_run_target.sql"),
+        ] {
+            let result = self.client.read().await.batch_execute(migration).await;
+            match result {
+                Ok(()) => {}
+                Err(error) if error.is_closed() => {
+                    self.reconnect().await?;
+                    self.client.read().await.batch_execute(migration).await?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
         Ok(())
     }
 
     pub async fn resolve_completed_input(&self, run_id: &str) -> Result<std::path::PathBuf> {
-        let row = self.client.query_opt(
-            "SELECT artifact_dir FROM plugin_runs WHERE run_id = $1 AND status IN ('success','failed')",
-            &[&run_id],
-        ).await?.ok_or_else(|| anyhow::anyhow!("completed run not found: {run_id}"))?;
+        const SQL: &str = "SELECT artifact_dir FROM plugin_runs WHERE run_id = $1 AND status IN ('success','failed')";
+        let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&run_id];
+        let result = self.client.read().await.query_opt(SQL, params).await;
+        let row = match result {
+            Ok(row) => row,
+            Err(error) if error.is_closed() => {
+                self.reconnect().await?;
+                self.client.read().await.query_opt(SQL, params).await?
+            }
+            Err(error) => return Err(error.into()),
+        }
+        .ok_or_else(|| anyhow::anyhow!("completed run not found: {run_id}"))?;
         let dir: String = row.get(0);
         let root = std::fs::canonicalize(&self.artifacts_root)?;
         let run = canonical_contained(&root, dir)?;
@@ -231,41 +266,69 @@ impl PostgresStore {
     /// run has already finished (successfully, unsuccessfully, or with a runner
     /// error), so every row here already describes a completed attempt.
     pub async fn resolve_run_artifact_dir(&self, run_id: &str) -> Result<std::path::PathBuf> {
-        let row = self
-            .client
-            .query_opt(
-                "SELECT artifact_dir FROM plugin_runs WHERE run_id = $1",
-                &[&run_id],
-            )
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("unknown run: {run_id}"))?;
+        const SQL: &str = "SELECT artifact_dir FROM plugin_runs WHERE run_id = $1";
+        let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&run_id];
+        let result = self.client.read().await.query_opt(SQL, params).await;
+        let row = match result {
+            Ok(row) => row,
+            Err(error) if error.is_closed() => {
+                self.reconnect().await?;
+                self.client.read().await.query_opt(SQL, params).await?
+            }
+            Err(error) => return Err(error.into()),
+        }
+        .ok_or_else(|| anyhow::anyhow!("unknown run: {run_id}"))?;
         let dir: String = row.get(0);
         let root = std::fs::canonicalize(&self.artifacts_root)?;
         canonical_contained(&root, dir)
     }
 
     pub async fn list_runs_by_target(&self, target: &str, limit: i64) -> Result<Vec<RunSummary>> {
-        let rows = self
-            .client
-            .query(
-                &format!(
-                    "SELECT {RUN_SUMMARY_COLUMNS} FROM plugin_runs WHERE target = $1 ORDER BY created_at DESC LIMIT $2"
-                ),
-                &[&target, &limit],
-            )
-            .await?;
+        let sql = format!(
+            "SELECT {RUN_SUMMARY_COLUMNS} FROM plugin_runs WHERE target = $1 ORDER BY created_at DESC LIMIT $2"
+        );
+        let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&target, &limit];
+        let result = self.client.read().await.query(&sql, params).await;
+        let rows = match result {
+            Ok(rows) => rows,
+            Err(error) if error.is_closed() => {
+                self.reconnect().await?;
+                self.client.read().await.query(&sql, params).await?
+            }
+            Err(error) => return Err(error.into()),
+        };
         Ok(rows.iter().map(RunSummary::from_row).collect())
     }
 
     pub async fn record_run(&self, run: &StoredRun<'_>) -> Result<()> {
+        const SQL: &str = "INSERT INTO plugin_runs (run_id, plugin, container, target, input_json, status, exit_code, artifact_dir, stdout_artifact, stderr_artifact, started_at, finished_at) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (run_id) DO UPDATE SET plugin=EXCLUDED.plugin, container=EXCLUDED.container, target=EXCLUDED.target, input_json=EXCLUDED.input_json, status=EXCLUDED.status, exit_code=EXCLUDED.exit_code, artifact_dir=EXCLUDED.artifact_dir, stdout_artifact=EXCLUDED.stdout_artifact, stderr_artifact=EXCLUDED.stderr_artifact, started_at=EXCLUDED.started_at, finished_at=EXCLUDED.finished_at";
         let artifact_dir = run.artifact_dir.to_string_lossy().into_owned();
         let stdout_path = run.stdout_path.to_string_lossy().into_owned();
         let stderr_path = run.stderr_path.to_string_lossy().into_owned();
         let input_json: serde_json::Value = serde_json::from_str(run.input_json)?;
-        self.client.execute(
-            "INSERT INTO plugin_runs (run_id, plugin, container, target, input_json, status, exit_code, artifact_dir, stdout_artifact, stderr_artifact, started_at, finished_at) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (run_id) DO UPDATE SET plugin=EXCLUDED.plugin, container=EXCLUDED.container, target=EXCLUDED.target, input_json=EXCLUDED.input_json, status=EXCLUDED.status, exit_code=EXCLUDED.exit_code, artifact_dir=EXCLUDED.artifact_dir, stdout_artifact=EXCLUDED.stdout_artifact, stderr_artifact=EXCLUDED.stderr_artifact, started_at=EXCLUDED.started_at, finished_at=EXCLUDED.finished_at",
-            &[&run.run_id, &run.plugin, &run.container, &run.target, &input_json, &run.status, &run.exit_code, &artifact_dir, &stdout_path, &stderr_path, &run.started_at, &run.finished_at],
-        ).await?;
+        let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
+            &run.run_id,
+            &run.plugin,
+            &run.container,
+            &run.target,
+            &input_json,
+            &run.status,
+            &run.exit_code,
+            &artifact_dir,
+            &stdout_path,
+            &stderr_path,
+            &run.started_at,
+            &run.finished_at,
+        ];
+        let result = self.client.read().await.execute(SQL, params).await;
+        match result {
+            Ok(_) => {}
+            Err(error) if error.is_closed() => {
+                self.reconnect().await?;
+                self.client.read().await.execute(SQL, params).await?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         Ok(())
     }
 }
@@ -394,6 +457,93 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+    }
+
+    /// Simulates the exact production incident this reconnect logic fixes:
+    /// PostgreSQL closes the store's session out from under it (here, via
+    /// `pg_terminate_backend`; in production this was a restart racing with
+    /// slickchook's own startup) while the process itself keeps running.
+    /// Before this fix, every subsequent query failed forever with
+    /// `Error::is_closed()` ("connection closed") until the whole process
+    /// was restarted. This asserts a query issued after the kill succeeds
+    /// anyway, and that a write (`record_run`) does too.
+    #[tokio::test]
+    async fn postgres_store_reconnects_after_connection_closed() {
+        let Ok(url) = std::env::var("TEST_POSTGRES_URL") else {
+            return;
+        };
+        let root =
+            std::env::temp_dir().join(format!("slickchook-reconnect-{}", uuid::Uuid::new_v4()));
+        let store = super::PostgresStore::connect(&url, root.clone(), super::DatabaseTls::Disable)
+            .await
+            .unwrap();
+        store.init_schema().await.unwrap();
+
+        let target = format!("reconnect-{}.example", uuid::Uuid::new_v4());
+        assert!(
+            store
+                .list_runs_by_target(&target, 10)
+                .await
+                .unwrap()
+                .is_empty(),
+            "sanity check before killing the connection"
+        );
+
+        let backend_pid: i32 = store
+            .client
+            .read()
+            .await
+            .query_one("SELECT pg_backend_pid()", &[])
+            .await
+            .unwrap()
+            .get(0);
+
+        let (admin, admin_connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(async move {
+            let _ = admin_connection.await;
+        });
+        admin
+            .execute("SELECT pg_terminate_backend($1)", &[&backend_pid])
+            .await
+            .unwrap();
+
+        // Give the connection-driving background task a moment to observe
+        // the closed socket before issuing the next query.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let runs = store
+            .list_runs_by_target(&target, 10)
+            .await
+            .expect("query should transparently reconnect and succeed");
+        assert!(runs.is_empty());
+
+        let run_id = format!("reconnect-run-{}", uuid::Uuid::new_v4());
+        let run_dir = root.join("run");
+        std::fs::create_dir_all(run_dir.join("input")).unwrap();
+        store
+            .record_run(&super::StoredRun {
+                run_id: &run_id,
+                plugin: "test",
+                container: "test:latest",
+                target: Some(&target),
+                status: "success",
+                exit_code: Some(0),
+                artifact_dir: &run_dir,
+                stdout_path: &run_dir.join("stdout"),
+                stderr_path: &run_dir.join("stderr"),
+                input_json: "{}",
+                started_at: "now",
+                finished_at: "now",
+            })
+            .await
+            .expect("record_run should also work after reconnecting");
+        let runs_after = store.list_runs_by_target(&target, 10).await.unwrap();
+        assert_eq!(runs_after.len(), 1);
+        assert_eq!(runs_after[0].run_id, run_id);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Requires a PostgreSQL instance with TLS enabled (`ssl = on`):

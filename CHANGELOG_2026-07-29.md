@@ -99,3 +99,25 @@
   reverse-proxied request through to a real running `slickchook` instance
   using a hostname-matched pinned certificate, and rejection of an unrelated
   certificate.
+- Fixed a real production incident: `PostgresStore` opened one PostgreSQL
+  connection at startup and never recovered if it died. `health` doesn't
+  touch the database, so it kept responding fine; every other tool
+  (`list_runs_by_target`, `list_run_artifacts`, `read_artifact`, and
+  `run_plugin`'s own recording of results) failed permanently with
+  `-32603 connection closed` for every caller, forever, until the whole
+  process was restarted. Root cause of the specific incident: a host/sandbox
+  reset brought `slickchook.service` up a few seconds before PostgreSQL's
+  cluster process finished starting, leaving the connection established
+  during startup unusable once whatever transient backend it reached was
+  gone.
+  `PostgresStore` now holds its client behind a lock and, on any query that
+  fails with `tokio_postgres::Error::is_closed()` specifically (not other
+  query errors), reconnects once and retries — transparent to callers, no
+  process restart required. Verified for real, not just unit-tested: wrote
+  a test that establishes a connection, kills that exact backend via
+  `pg_terminate_backend` (reproducing the incident directly rather than
+  guessing at it), and confirms both a read and a write succeed afterward;
+  then reproduced the whole thing again against the actual running binary
+  (kill the connection from outside, confirm the next live MCP call
+  recovers and stays healthy, with log lines showing the reconnect actually
+  fired) rather than trusting the unit test alone.
