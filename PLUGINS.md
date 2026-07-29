@@ -228,11 +228,35 @@ Each run creates:
 - `artifacts/<run_id>/stdout.txt`
 - `artifacts/<run_id>/stderr.txt`
 - any files the container writes under `/artifacts`
-- a row in `artifacts/plugin_runs.sqlite3`
+- a row in the PostgreSQL `plugin_runs` table
 
 Docker execution is handled by the separate `slickchook-runner` binary. See `RUNNER.md` for Docker group setup. Set `SLICKCHOOK_RUNNER=/path/to/slickchook-runner` if it is not next to the main `slickchook` binary.
 
 Docker runs with restrictive defaults: no network unless a manifest explicitly requests `bridge`, read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, a non-root user, process limits, memory limits, CPU limits, no stdin, and only the run artifact directory mounted writable at `/artifacts`. Manifests can declare narrowly scoped tmpfs mounts, such as `/tmp`, when a container needs temporary space.
+
+**A read-only root filesystem is the single most common cause of a plugin
+failing on its first real run.** Many CLI tools write a config file, cache,
+or local database under the invoking user's home directory (commonly
+`$HOME/.config/<tool>` or `$HOME/.cache/<tool>`) even when never asked to.
+Containers run as UID/GID `65534:65534` with no matching `/etc/passwd`
+entry, so `$HOME` typically resolves to `/`, and the write lands at
+`/.config/<tool>` or `/.cache/<tool>` on the read-only root — failing with
+a confusing, tool-specific error (a permission error, or in `amass`'s case
+a misleading "out of memory" panic) rather than anything that obviously
+points at the filesystem. Before deploying a new plugin, check whether its
+image writes anywhere outside `/artifacts` on a normal run (a quick
+`docker run --read-only <image> ...` smoke test reproduces this
+immediately), and add the specific path as a tmpfs mount if so:
+
+```toml
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.config:rw,noexec,nosuid,nodev,size=8m"]
+```
+
+`subfinder`, `nuclei`, and `amass` all needed a `/.config` mount for
+exactly this reason; `kiterunner` needed `/.cache` instead. Size the mount
+only as large as the tool's actual config/cache footprint requires — these
+are tmpfs (RAM-backed), not disk, and count against the container's own
+resource limits.
 
 The runner only allows these capability modes:
 
