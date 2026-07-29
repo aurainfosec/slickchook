@@ -121,3 +121,12 @@
   (kill the connection from outside, confirm the next live MCP call
   recovers and stays healthy, with log lines showing the reconnect actually
   fired) rather than trusting the unit test alone.
+- Fixed the `amass` plugin manifest, reported failing with a misleading
+  "out of memory" panic trying to initialize its database under
+  `/.config/amass/`. Root cause: the manifest's `tmpfs` list only declared
+  `/tmp`, so `/.config` fell under the container's read-only root
+  filesystem — the identical class of bug already fixed for `subfinder` and
+  `nuclei` (see `CHANGELOG_2026-07-15.md`), just not applied here. Added the
+  same `/.config` tmpfs mount those two already use, sized a bit larger
+  (32 MiB vs. their 8 MiB) since amass's `.config/amass` holds an actual
+  graph database rather than just small config files.
