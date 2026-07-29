@@ -41,11 +41,9 @@ root — the basis of fetch-then-analyze pipelines (e.g. `screensanitize`,
 `plugin_status` / `plugin_cancel` (asynchronous jobs), `list_plugins`,
 `health`.
 
-**Persistence.** A `RunStore` trait abstracts run metadata (plugin,
-container, status, exit code, timestamps, input JSON) behind two
-implementations: `SqliteStore` (the current default, single-node) and
-`PostgresStore` (opt-in via `SLICKCHOOK_STORAGE_BACKEND=postgres` and
-`DATABASE_URL`), aimed at a future durable, multi-client MCP deployment.
+**Persistence.** `PostgresStore` records run metadata (plugin, container,
+status, exit code, timestamps, input JSON) to PostgreSQL, required via
+`DATABASE_URL`, aimed at a future durable, multi-client MCP deployment.
 
 ## Security model
 
@@ -78,3 +76,7 @@ For local development:
 cargo build
 cargo test
 ```
+
+Storage-layer tests require a reachable PostgreSQL instance: set
+`TEST_POSTGRES_URL` to a database the test suite can create and drop tables
+in, or that test is skipped.

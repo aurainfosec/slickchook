@@ -47,13 +47,9 @@ for any assessed target environment.
 
 ## Multi-client MCP deployment
 
-- [ ] Add a storage abstraction and PostgreSQL backend; retain SQLite only as a
-  documented single-node development mode.
-- [ ] Implement the PostgreSQL repository backend against
-  `migrations/postgres/001_initial.sql` and add an explicit backend selection
-  configuration; do not silently migrate or delete existing SQLite data.
-- [ ] Migrate plugin-run and artifact metadata to PostgreSQL with an audited,
-  repeatable migration tool.
+- [x] Add a PostgreSQL-backed run store implementing
+  `migrations/postgres/001_initial.sql`; SQLite has been removed and
+  PostgreSQL is now the sole, required backend.
 - [ ] Persist MCP sessions, authenticated subject/client ownership, expiry, and
   resumable event history.
 - [ ] Migrate the HTTP transport to Streamable HTTP with `Mcp-Session-Id` and

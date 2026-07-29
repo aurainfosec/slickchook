@@ -176,22 +176,20 @@ OCR or vision-derived text as attacker-controlled report data: image analysis
 must return structured observations only and must not invoke tools or change
 instructions.
 
-### PostgreSQL migration status
+### PostgreSQL backend
 
-The PostgreSQL schema is staged but SQLite remains the active runtime backend.
-To apply the reviewed schema to a separate PostgreSQL database:
+PostgreSQL is the only run-store backend; Slickchook requires `DATABASE_URL`
+to start. To apply the schema to a database directly, outside the automated
+installer:
 
 ```bash
 DATABASE_URL='postgresql://user:password@host/db' \
   ./scripts/migrate-postgres.sh
 ```
 
-Applying this schema does not migrate existing SQLite rows; do not switch a
-production service until the repository backend and data migration tooling are
-implemented and tested.
-
-The installer provisions a local PostgreSQL database named `slickchook_db` for
-the future backend. It does not activate that backend automatically.
+The automated Ubuntu installer provisions a local least-privilege role and
+database named `slickchook_db` and writes the resulting `DATABASE_URL` to
+`/etc/slickchook/postgres.env` automatically; see `RUNNER.md`.
 
 Kiterunner uses the small route corpus by default (about 35 MB unpacked). The
 large corpus is intentionally not bundled; publish it as a separately reviewed

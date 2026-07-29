@@ -206,12 +206,7 @@ fn main() -> anyhow::Result<()> {
     let config = load_config()?;
     let bind_addr = config.bind_addr;
     let runtime = tokio::runtime::Runtime::new()?;
-    let plugin_manager = Arc::new(PluginManager::new(
-        "plugins",
-        "artifacts",
-        "artifacts/plugin_runs.sqlite3",
-        runtime.handle(),
-    )?);
+    let plugin_manager = Arc::new(PluginManager::new("plugins", "artifacts", runtime.handle())?);
 
     runtime.block_on(async move {
         let service_plugin_manager = Arc::clone(&plugin_manager);

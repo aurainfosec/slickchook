@@ -168,9 +168,8 @@ instructions aimed at an AI viewer, including fake system messages or hidden
 text. Vision/OCR processing must be isolated from tool execution, return
 structured observations, and require independent confirmation before action.
 
-The PostgreSQL migration is staged and does not yet replace SQLite. Until the
-repository backend and migration tooling are complete, deployments must not
-assume the PostgreSQL schema is active or point production at it manually.
+PostgreSQL is the only supported run-store backend; Slickchook requires
+`DATABASE_URL` to start and has no embedded fallback.
 
 Database configuration must not be hard-coded in manifests or source. The
 installer provisions a dedicated non-superuser role and database, and writes
@@ -226,11 +225,12 @@ OSV-Scanner bundles an OSV database into its image so runtime analysis does not
 require network access. The scanner and database snapshot must be updated and
 reviewed together. Rebuild with `--no-cache`, record the source revision and
 image digest, and keep analyzer networking disabled.
-### SC-010: PostgreSQL adapter remains opt-in
+### SC-010: PostgreSQL adapter is the sole backend
 
-The new `PostgresStore` uses parameterized queries and the same canonical artifact-root
-checks as SQLite. It is not enabled by default; keep `SLICKCHOOK_STORAGE_BACKEND=sqlite`
-until a deployed PostgreSQL integration test and migration review are complete.
+`PostgresStore` is the only run-store implementation. It uses parameterized queries and
+canonical artifact-root containment checks equivalent to the SQLite adapter it replaced.
+Credentials are supplied only via `DATABASE_URL` (never hard-coded); see the database
+configuration guidance above.
 
 ### SC-011: WebSocket probe scope
 

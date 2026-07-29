@@ -1,4 +1,4 @@
-use crate::storage::{PostgresStore, RunStore, SqliteStore, StorageBackend};
+use crate::storage::PostgresStore;
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ const DEFAULT_TIMEOUT_SECONDS: u64 = 300;
 pub struct PluginManager {
     plugins_dir: PathBuf,
     artifacts_dir: PathBuf,
-    store: Arc<dyn RunStore>,
+    store: Arc<PostgresStore>,
     runner_path: PathBuf,
     plugins: Arc<RwLock<HashMap<String, Plugin>>>,
 }
@@ -152,28 +152,16 @@ impl PluginManager {
     pub fn new(
         plugins_dir: impl Into<PathBuf>,
         artifacts_dir: impl Into<PathBuf>,
-        db_path: impl Into<PathBuf>,
         runtime: &tokio::runtime::Handle,
     ) -> Result<Self> {
         let plugins_dir = plugins_dir.into();
         let artifacts_dir = artifacts_dir.into();
-        let db_path = db_path.into();
-        let backend = StorageBackend::from_env()?;
-        let store: Arc<dyn RunStore> = match backend {
-            StorageBackend::Sqlite => Arc::new(SqliteStore {
-                db_path,
-                artifacts_root: artifacts_dir.clone(),
-            }),
-            StorageBackend::Postgres => {
-                let url = env::var("DATABASE_URL")
-                    .context("DATABASE_URL is required when SLICKCHOOK_STORAGE_BACKEND=postgres")?;
-                Arc::new(PostgresStore::connect_sync(
-                    runtime,
-                    &url,
-                    artifacts_dir.clone(),
-                )?)
-            }
-        };
+        let url = env::var("DATABASE_URL").context("DATABASE_URL is required")?;
+        let store = Arc::new(PostgresStore::connect_sync(
+            runtime,
+            &url,
+            artifacts_dir.clone(),
+        )?);
         runtime.block_on(store.init_schema())?;
         let manager = Self {
             plugins_dir,
