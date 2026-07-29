@@ -154,6 +154,10 @@ fn parse_args() -> Result<RunnerArgs> {
                 print_usage();
                 std::process::exit(0);
             }
+            "--version" | "-V" => {
+                println!("slickchook-runner {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             _ => bail!("unknown argument `{arg}`"),
         }
     }
