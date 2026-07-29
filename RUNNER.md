@@ -13,9 +13,9 @@ root-equivalent.
 These instructions assume:
 
 - Ubuntu Server with Docker Engine already installed and running;
-- PostgreSQL packages are installed and the local service is enabled by the
-  installer for the upcoming durable backend; SQLite remains the active
-  Slickchook backend until migration validation is complete;
+- PostgreSQL is installed and running; Slickchook requires it, connecting via
+  `DATABASE_URL`. The automated installer provisions a local role, database,
+  and connection file for you (see below);
 - the repository is the current directory; and
 - Rust is installed on the build machine.
 

@@ -20,10 +20,12 @@ for any assessed target environment.
 - [ ] Cache DNS, HTTP, certificate, and technology results with timestamps.
 - [ ] Track plugin/image versions, digests, options, target, and provenance.
 - [ ] Emit a normalized attack-surface inventory alongside raw artifacts.
-- [ ] Add authenticated, server-side artifact listing and bounded read APIs
-  scoped by target/run, with canonical-root checks, MIME/size limits, audit
-  logging, and explicit untrusted-content labeling; do not expose the entire
-  artifact tree through a general-purpose plugin.
+- [x] Add server-side artifact listing and bounded read APIs scoped by
+  target/run (`list_runs_by_target`, `list_run_artifacts`, `read_artifact`),
+  with canonical-root checks, size limits, audit logging, and explicit
+  untrusted-content labeling. Not yet gated by authentication — see the
+  authorization item below; these tools currently share the same trust
+  boundary as `run_plugin`.
 - [ ] Support incremental rescans based on changed assets.
 - [ ] Add scheduled monitoring and change detection.
 
@@ -47,19 +49,17 @@ for any assessed target environment.
 
 ## Multi-client MCP deployment
 
-- [ ] Add a storage abstraction and PostgreSQL backend; retain SQLite only as a
-  documented single-node development mode.
-- [ ] Implement the PostgreSQL repository backend against
-  `migrations/postgres/001_initial.sql` and add an explicit backend selection
-  configuration; do not silently migrate or delete existing SQLite data.
-- [ ] Migrate plugin-run and artifact metadata to PostgreSQL with an audited,
-  repeatable migration tool.
+- [x] Add a PostgreSQL-backed run store implementing
+  `migrations/postgres/001_initial.sql`; SQLite has been removed and
+  PostgreSQL is now the sole, required backend.
 - [ ] Persist MCP sessions, authenticated subject/client ownership, expiry, and
   resumable event history.
 - [ ] Migrate the HTTP transport to Streamable HTTP with `Mcp-Session-Id` and
   `Last-Event-ID` replay support while retaining compatibility during rollout.
 - [ ] Implement MCP OAuth 2.1 authorization discovery, PKCE, bearer validation,
-  audience checks, and scoped permissions (`read`, `run`, `cancel`, `admin`).
+  audience checks, and scoped permissions (`read`, `run`, `cancel`, `admin`);
+  gate the artifact-read tools (`list_runs_by_target`, `list_run_artifacts`,
+  `read_artifact`) behind this once it lands.
 - [ ] Enforce per-subject job/artifact isolation, concurrency quotas, and
   reconnect-safe cancellation semantics.
 - [ ] Add restart, reconnect, concurrent-client, token-expiry, and authorization

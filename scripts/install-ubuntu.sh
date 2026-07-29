@@ -71,7 +71,7 @@ runuser -u postgres -- psql --command "ALTER DATABASE ${DB_NAME} OWNER TO ${DB_R
 DB_PASSWORD=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
 runuser -u postgres -- psql --command "ALTER ROLE ${DB_ROLE} PASSWORD '${DB_PASSWORD}';"
 install -d -o root -g "${SERVICE_GROUP}" -m 0750 /etc/slickchook
-printf 'SLICKCHOOK_STORAGE_BACKEND=postgres\nDATABASE_URL=postgresql://%s:%s@127.0.0.1:5432/%s\n' \\
+printf 'DATABASE_URL=postgresql://%s:%s@127.0.0.1:5432/%s\n' \\
   "${DB_ROLE}" "${DB_PASSWORD}" "${DB_NAME}" > "${DB_ENV}"
 chown root:"${SERVICE_GROUP}" "${DB_ENV}"
 chmod 0640 "${DB_ENV}"
@@ -175,10 +175,6 @@ find "${STATE_DIR}/plugins" -type f -exec chmod 0640 {} +
 install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0750 "${STATE_DIR}/artifacts"
 setfacl -m u:65534:rwx,m::rwx "${STATE_DIR}/artifacts"
 setfacl -m d:u:65534:rwx,d:m::rwx "${STATE_DIR}/artifacts"
-if [[ -f ${STATE_DIR}/artifacts/plugin_runs.sqlite3 ]]; then
-  chown "${SERVICE_USER}:${SERVICE_GROUP}" "${STATE_DIR}/artifacts/plugin_runs.sqlite3"
-  chmod 0640 "${STATE_DIR}/artifacts/plugin_runs.sqlite3"
-fi
 
 if [[ -f ${UNIT_PATH} ]] && ! cmp -s "${SOURCE_DIR}/deploy/slickchook.service" "${UNIT_PATH}"; then
   ensure_backup_dir
