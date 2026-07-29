@@ -205,6 +205,54 @@ sudo journalctl -u slickchook.service -n 100 --no-pager
 
 The server listens on `127.0.0.1:8080` and exposes its SSE endpoint at `/sse`.
 
+## Front the MCP endpoint with Caddy (TLS)
+
+The installer also installs and configures [Caddy](https://caddyserver.com/) as
+a TLS-terminating reverse proxy in front of the plaintext `127.0.0.1:8080`
+listener, since `slickchook` itself has no built-in transport encryption.
+Caddy listens on `CADDY_HOSTNAME:CADDY_LISTEN_PORT` (defaults: `slickchook`,
+`8443`) using a self-signed certificate generated once at
+`/etc/caddy/tls/server.crt`, valid for `CADDY_CERT_DAYS` days (default 365).
+All three are environment variables read by the installer:
+
+```bash
+sudo --preserve-env=CADDY_HOSTNAME,CADDY_LISTEN_PORT,CADDY_CERT_DAYS \
+  CADDY_HOSTNAME=my-vm CADDY_LISTEN_PORT=8443 CADDY_CERT_DAYS=730 \
+  ./scripts/install-ubuntu.sh
+```
+
+(`sudo` resets most environment variables by default, hence
+`--preserve-env`; running the installer from an already-root shell avoids the
+issue entirely.)
+
+**Connecting clients must resolve and connect via `CADDY_HOSTNAME`, not a bare
+IP.** TLS servers select a certificate by the ClientHello's SNI, and clients
+don't send an SNI extension for literal IP addresses — connecting to the
+VM's IP directly fails the handshake outright with no usable certificate to
+present, regardless of trust. Give the connecting client (e.g. a paired
+AI-agent instance) an `/etc/hosts` entry or DNS record mapping
+`CADDY_HOSTNAME` to this VM's address.
+
+**Establish trust at provisioning time, not on first connection.** Whatever
+is provisioning both the client and this server already has an authoritative
+channel to deliver the real certificate — use it. Hand the client the exact
+contents of `/etc/caddy/tls/server.crt` (or at minimum its SHA-256
+fingerprint, printed at the end of installation) directly, and configure
+the client to trust *only* that specific certificate for this connection —
+not a shared CA, not the system trust store. A shared CA means every client
+trusts every instance in the fleet, which is more than any single pairing
+needs; trust-on-first-connection (like SSH host keys) is possible but weaker
+still, since whatever intercepts that first connection is trusted forever
+after. Provisioning-time pinning has neither weakness, since there's no
+window where trust is decided by anything other than the process that's
+already authoritative for both sides.
+
+The certificate is generated once and left in place on reinstall/update:
+regenerating it on every run would silently invalidate whatever pin a
+connected client already has. Delete `/etc/caddy/tls/server.{crt,key}`
+manually to force reissuance (and re-deliver the new certificate to
+connecting clients).
+
 ## 6. Verify runner and container execution
 
 First check the endpoint and confirm the service account still has no direct

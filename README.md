@@ -16,8 +16,11 @@ SSE) and never touches Docker directly. `slickchook-runner` is a separate
 binary installed `root:docker` with the setgid bit set — the only process
 with Docker socket access. The server invokes it as a subprocess per run
 with structured argv, never a shell, so there is no command-injection
-surface between the two. See [`RUNNER.md`](RUNNER.md) for the deployment
-model and enforcement details.
+surface between the two. `slickchook` itself speaks plaintext HTTP with no
+built-in transport encryption; the Ubuntu installer and `.deb` package front
+it with [Caddy](https://caddyserver.com/) as a TLS-terminating reverse
+proxy. See [`RUNNER.md`](RUNNER.md) for the deployment model, enforcement
+details, and how connecting clients should trust that certificate.
 
 **Plugins are data, not code.** Each plugin is a TOML manifest declaring a
 container image, fixed/default arguments, explicitly declared `options` and
