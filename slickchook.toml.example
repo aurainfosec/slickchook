@@ -1,2 +1,12 @@
 # MCP listener configuration. Copy to /etc/slickchook/slickchook.toml.
 bind_addr = "127.0.0.1:18080"
+
+# Whether to require TLS on the connection to PostgreSQL: "disable" (default)
+# or "require". This is authoritative -- it overrides any `sslmode` present
+# in DATABASE_URL rather than merely supplementing it. Leave at "disable"
+# only when PostgreSQL is reachable exclusively over a trusted loopback or
+# local socket, matching the default deployment model in RUNNER.md. Set to
+# "require" for any non-local DATABASE_URL; there is no unverified/
+# opportunistic middle tier, since that would silently tolerate a
+# stripped-TLS machine-in-the-middle without ever surfacing an error.
+# database_tls = "require"

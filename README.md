@@ -47,7 +47,13 @@ target, status, exit code, timestamps, input JSON) to PostgreSQL, required
 via `DATABASE_URL`, aimed at a future durable, multi-client MCP deployment.
 Each plugin's declared `target` input is indexed, so runs and their
 artifacts can be looked back up by target later — not just returned inline
-by the `run_plugin` call that produced them.
+by the `run_plugin` call that produced them. The connection itself is
+plaintext by default (`database_tls = "disable"` in `slickchook.toml`),
+appropriate only when PostgreSQL is reachable exclusively over a trusted
+loopback or local socket; set `database_tls = "require"` for any non-local
+`DATABASE_URL` to require a verified TLS connection (rejecting the server
+outright if its certificate doesn't check out against the host's native
+trust store).
 
 ## Security model
 
@@ -89,4 +95,9 @@ cargo test
 
 Storage-layer tests require a reachable PostgreSQL instance: set
 `TEST_POSTGRES_URL` to a database the test suite can create and drop tables
-in, or that test is skipped.
+in, or that test is skipped. The `database_tls = "require"` path has its own
+test, gated on `TEST_POSTGRES_TLS_URL` (a TLS-enabled PostgreSQL instance),
+`TEST_POSTGRES_TLS_CA` (PEM file with that server's certificate), and
+`TEST_POSTGRES_TLS_UNRELATED_CA` (any other PEM cert, used to prove
+untrusted certificates are rejected); all three must be set together for
+that test to run.

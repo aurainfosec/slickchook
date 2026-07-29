@@ -8,6 +8,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use slickchook::plugin_manager::PluginManager;
+use slickchook::storage::DatabaseTls;
 use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
 use uuid::Uuid;
@@ -257,6 +258,8 @@ fn server_info() -> ServerInfo {
 struct AppConfig {
     #[serde(default = "default_bind_addr")]
     bind_addr: String,
+    #[serde(default)]
+    database_tls: DatabaseTls,
 }
 
 fn default_bind_addr() -> String {
@@ -268,6 +271,7 @@ fn load_config() -> anyhow::Result<AppConfig> {
     if !std::path::Path::new(&path).exists() {
         return Ok(AppConfig {
             bind_addr: default_bind_addr(),
+            database_tls: DatabaseTls::default(),
         });
     }
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
@@ -290,6 +294,7 @@ fn main() -> anyhow::Result<()> {
         "plugins",
         "artifacts",
         runtime.handle(),
+        config.database_tls,
     )?);
 
     runtime.block_on(async move {
