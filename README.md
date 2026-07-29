@@ -39,11 +39,15 @@ root — the basis of fetch-then-analyze pipelines (e.g. `screensanitize`,
 
 **MCP surface:** `run_plugin` (synchronous), `start_plugin` /
 `plugin_status` / `plugin_cancel` (asynchronous jobs), `list_plugins`,
-`health`.
+`health`, `list_runs_by_target` / `list_run_artifacts` / `read_artifact`
+(scoped artifact retrieval).
 
 **Persistence.** `PostgresStore` records run metadata (plugin, container,
-status, exit code, timestamps, input JSON) to PostgreSQL, required via
-`DATABASE_URL`, aimed at a future durable, multi-client MCP deployment.
+target, status, exit code, timestamps, input JSON) to PostgreSQL, required
+via `DATABASE_URL`, aimed at a future durable, multi-client MCP deployment.
+Each plugin's declared `target` input is indexed, so runs and their
+artifacts can be looked back up by target later — not just returned inline
+by the `run_plugin` call that produced them.
 
 ## Security model
 

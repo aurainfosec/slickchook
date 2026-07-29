@@ -1,11 +1,13 @@
 use anyhow::{Result, bail};
-use std::path::Path;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 use tokio_postgres::{Client, NoTls};
 
 pub struct StoredRun<'a> {
     pub run_id: &'a str,
     pub plugin: &'a str,
     pub container: &'a str,
+    pub target: Option<&'a str>,
     pub status: &'a str,
     pub exit_code: Option<i32>,
     pub artifact_dir: &'a Path,
@@ -14,6 +16,49 @@ pub struct StoredRun<'a> {
     pub input_json: &'a str,
     pub started_at: &'a str,
     pub finished_at: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunSummary {
+    pub run_id: String,
+    pub plugin: String,
+    pub container: String,
+    pub target: Option<String>,
+    pub status: String,
+    pub exit_code: Option<i32>,
+    pub artifact_dir: String,
+    pub started_at: String,
+    pub finished_at: String,
+}
+
+impl RunSummary {
+    fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            run_id: row.get(0),
+            plugin: row.get(1),
+            container: row.get(2),
+            target: row.get(3),
+            status: row.get(4),
+            exit_code: row.get(5),
+            artifact_dir: row.get(6),
+            started_at: row.get(7),
+            finished_at: row.get(8),
+        }
+    }
+}
+
+const RUN_SUMMARY_COLUMNS: &str =
+    "run_id, plugin, container, target, status, exit_code, artifact_dir, started_at, finished_at";
+
+/// Canonicalizes `candidate` and confirms it lies beneath the already-canonical
+/// `root`, resolving symlinks along the way so a symlink planted inside a run's
+/// artifact directory can't point an otherwise-valid-looking path outside it.
+fn canonical_contained(root: &Path, candidate: impl AsRef<Path>) -> Result<PathBuf> {
+    let resolved = std::fs::canonicalize(candidate)?;
+    if !resolved.starts_with(root) {
+        bail!("path is outside the expected root");
+    }
+    Ok(resolved)
 }
 
 /// PostgreSQL-backed run store. Construction is asynchronous because tokio-postgres
@@ -49,8 +94,7 @@ impl PostgresStore {
         database_url: &str,
         artifacts_root: std::path::PathBuf,
     ) -> Result<Self> {
-        let (client, connection) =
-            handle.block_on(tokio_postgres::connect(database_url, NoTls))?;
+        let (client, connection) = handle.block_on(tokio_postgres::connect(database_url, NoTls))?;
         handle.spawn(async move {
             if let Err(error) = connection.await {
                 tracing::error!(%error, "postgresql connection closed");
@@ -66,6 +110,11 @@ impl PostgresStore {
         self.client
             .batch_execute(include_str!("../migrations/postgres/001_initial.sql"))
             .await?;
+        self.client
+            .batch_execute(include_str!(
+                "../migrations/postgres/002_add_run_target.sql"
+            ))
+            .await?;
         Ok(())
     }
 
@@ -76,15 +125,41 @@ impl PostgresStore {
         ).await?.ok_or_else(|| anyhow::anyhow!("completed run not found: {run_id}"))?;
         let dir: String = row.get(0);
         let root = std::fs::canonicalize(&self.artifacts_root)?;
-        let run = std::fs::canonicalize(dir)?;
-        if !run.starts_with(&root) {
-            bail!("run artifact is outside artifact root");
-        }
-        let input = std::fs::canonicalize(run.join("input"))?;
-        if !input.starts_with(&run) {
-            bail!("input directory is outside run artifact");
-        }
+        let run = canonical_contained(&root, dir)?;
+        let input = canonical_contained(&run, run.join("input"))?;
         Ok(input)
+    }
+
+    /// Resolves the artifact directory for any recorded run (regardless of
+    /// status), confined to `artifacts_root`. Unlike `resolve_completed_input`,
+    /// this doesn't filter by status: `record_run` only ever writes a row once a
+    /// run has already finished (successfully, unsuccessfully, or with a runner
+    /// error), so every row here already describes a completed attempt.
+    pub async fn resolve_run_artifact_dir(&self, run_id: &str) -> Result<std::path::PathBuf> {
+        let row = self
+            .client
+            .query_opt(
+                "SELECT artifact_dir FROM plugin_runs WHERE run_id = $1",
+                &[&run_id],
+            )
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("unknown run: {run_id}"))?;
+        let dir: String = row.get(0);
+        let root = std::fs::canonicalize(&self.artifacts_root)?;
+        canonical_contained(&root, dir)
+    }
+
+    pub async fn list_runs_by_target(&self, target: &str, limit: i64) -> Result<Vec<RunSummary>> {
+        let rows = self
+            .client
+            .query(
+                &format!(
+                    "SELECT {RUN_SUMMARY_COLUMNS} FROM plugin_runs WHERE target = $1 ORDER BY created_at DESC LIMIT $2"
+                ),
+                &[&target, &limit],
+            )
+            .await?;
+        Ok(rows.iter().map(RunSummary::from_row).collect())
     }
 
     pub async fn record_run(&self, run: &StoredRun<'_>) -> Result<()> {
@@ -93,8 +168,8 @@ impl PostgresStore {
         let stderr_path = run.stderr_path.to_string_lossy().into_owned();
         let input_json: serde_json::Value = serde_json::from_str(run.input_json)?;
         self.client.execute(
-            "INSERT INTO plugin_runs (run_id, plugin, container, input_json, status, exit_code, artifact_dir, stdout_artifact, stderr_artifact, started_at, finished_at) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id) DO UPDATE SET plugin=EXCLUDED.plugin, container=EXCLUDED.container, input_json=EXCLUDED.input_json, status=EXCLUDED.status, exit_code=EXCLUDED.exit_code, artifact_dir=EXCLUDED.artifact_dir, stdout_artifact=EXCLUDED.stdout_artifact, stderr_artifact=EXCLUDED.stderr_artifact, started_at=EXCLUDED.started_at, finished_at=EXCLUDED.finished_at",
-            &[&run.run_id, &run.plugin, &run.container, &input_json, &run.status, &run.exit_code, &artifact_dir, &stdout_path, &stderr_path, &run.started_at, &run.finished_at],
+            "INSERT INTO plugin_runs (run_id, plugin, container, target, input_json, status, exit_code, artifact_dir, stdout_artifact, stderr_artifact, started_at, finished_at) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (run_id) DO UPDATE SET plugin=EXCLUDED.plugin, container=EXCLUDED.container, target=EXCLUDED.target, input_json=EXCLUDED.input_json, status=EXCLUDED.status, exit_code=EXCLUDED.exit_code, artifact_dir=EXCLUDED.artifact_dir, stdout_artifact=EXCLUDED.stdout_artifact, stderr_artifact=EXCLUDED.stderr_artifact, started_at=EXCLUDED.started_at, finished_at=EXCLUDED.finished_at",
+            &[&run.run_id, &run.plugin, &run.container, &run.target, &input_json, &run.status, &run.exit_code, &artifact_dir, &stdout_path, &stderr_path, &run.started_at, &run.finished_at],
         ).await?;
         Ok(())
     }
@@ -118,11 +193,13 @@ mod tests {
             .unwrap();
         store.init_schema().await.unwrap();
         let run_id = format!("test-{}", uuid::Uuid::new_v4());
+        let target = format!("target-{}.example", uuid::Uuid::new_v4());
         store
             .record_run(&super::StoredRun {
                 run_id: &run_id,
                 plugin: "test",
                 container: "test:latest",
+                target: Some(&target),
                 status: "success",
                 exit_code: Some(0),
                 artifact_dir: &run,
@@ -145,12 +222,36 @@ mod tests {
                 .is_err()
         );
 
+        let by_target = store.list_runs_by_target(&target, 10).await.unwrap();
+        assert_eq!(by_target.len(), 1);
+        assert_eq!(by_target[0].run_id, run_id);
+        assert_eq!(by_target[0].target.as_deref(), Some(target.as_str()));
+        assert!(
+            store
+                .list_runs_by_target("no-such-target.example", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        assert_eq!(
+            store.resolve_run_artifact_dir(&run_id).await.unwrap(),
+            std::fs::canonicalize(&run).unwrap()
+        );
+        assert!(
+            store
+                .resolve_run_artifact_dir("does-not-exist")
+                .await
+                .is_err()
+        );
+
         let outside_id = format!("outside-{}", uuid::Uuid::new_v4());
         store
             .record_run(&super::StoredRun {
                 run_id: &outside_id,
                 plugin: "test",
                 container: "test:latest",
+                target: None,
                 status: "success",
                 exit_code: Some(0),
                 artifact_dir: &outside,
@@ -181,6 +282,7 @@ mod tests {
                     run_id: &symlink_id,
                     plugin: "test",
                     container: "test:latest",
+                    target: None,
                     status: "success",
                     exit_code: Some(0),
                     artifact_dir: &symlink_run,
