@@ -13,6 +13,16 @@ readonly PLUGIN_COMMAND="/usr/local/sbin/slickchook-plugin"
 readonly DB_NAME="slickchook_db"
 readonly DB_ROLE="slickchook"
 readonly DB_ENV="/etc/slickchook/postgres.env"
+# The hostname the TLS certificate is issued for and Caddy's site block is
+# keyed to. Connecting clients (e.g. a paired AI-agent instance) must use
+# this same hostname, not a bare IP: TLS servers select a certificate by the
+# ClientHello's SNI, and clients don't send SNI for literal IP addresses,
+# so a certificate lookup by IP alone fails the handshake outright.
+readonly CADDY_HOSTNAME="${CADDY_HOSTNAME:-slickchook}"
+readonly CADDY_LISTEN_PORT="${CADDY_LISTEN_PORT:-8443}"
+readonly CADDY_CERT_DAYS="${CADDY_CERT_DAYS:-365}"
+readonly CADDY_TLS_DIR="/etc/caddy/tls"
+readonly CADDYFILE="/etc/caddy/Caddyfile"
 
 SERVICE_WAS_ACTIVE=false
 INSTALL_COMPLETE=false
@@ -43,6 +53,10 @@ trap restart_previous_service_on_error EXIT
 if [[ ${EUID} -ne 0 ]]; then
   die "run this script as root: sudo $0"
 fi
+# sudo resets most environment variables by default. To override
+# CADDY_HOSTNAME/CADDY_LISTEN_PORT/CADDY_CERT_DAYS, either run this script
+# from a root shell directly, or pass
+# sudo --preserve-env=CADDY_HOSTNAME,CADDY_LISTEN_PORT,CADDY_CERT_DAYS.
 
 SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 SERVER_BINARY="${SOURCE_DIR}/target/release/slickchook"
@@ -53,10 +67,26 @@ PLUGIN_COMMAND_SOURCE="${SOURCE_DIR}/scripts/slickchook-plugin"
 [[ -x ${RUNNER_BINARY} ]] || die "missing ${RUNNER_BINARY}; run cargo build --locked --release --bins first"
 [[ -f ${SOURCE_DIR}/deploy/slickchook.service ]] || die "missing systemd unit template"
 [[ -x ${PLUGIN_COMMAND_SOURCE} ]] || die "missing executable plugin installer: ${PLUGIN_COMMAND_SOURCE}"
+command -v openssl >/dev/null || die "openssl is required to generate the Caddy TLS certificate"
 
 command -v apt-get >/dev/null || die "this installer requires Ubuntu or another apt-based system"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install --yes acl iproute2 postgresql postgresql-client
+
+if ! command -v caddy >/dev/null; then
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install --yes caddy; then
+    # Older Ubuntu releases don't carry caddy in their default repos; fall
+    # back to Caddy's official apt repository.
+    # https://caddyserver.com/docs/install#debian-ubuntu-raspbian
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes debian-keyring debian-archive-keyring apt-transport-https
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+      | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+      > /etc/apt/sources.list.d/caddy-stable.list
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes caddy
+  fi
+fi
 
 getent group docker >/dev/null || die "the docker group does not exist; install Docker Engine first"
 systemctl enable --now docker.service
@@ -191,6 +221,47 @@ systemctl daemon-reload
 systemctl enable --now slickchook.service
 systemctl restart slickchook.service
 
+# Front slickchook with Caddy for TLS. The certificate is generated once and
+# left in place on reinstall/update: regenerating it would silently break
+# certificate pinning on whatever client (e.g. a paired AI-agent instance)
+# was handed its fingerprint at provisioning time. Delete
+# ${CADDY_TLS_DIR}/server.{crt,key} manually to force reissuance.
+install -d -o root -g root -m 0755 "${CADDY_TLS_DIR}"
+if [[ ! -f ${CADDY_TLS_DIR}/server.crt || ! -f ${CADDY_TLS_DIR}/server.key ]]; then
+  echo "Generating Caddy TLS certificate for '${CADDY_HOSTNAME}' (valid ${CADDY_CERT_DAYS} days)."
+  openssl req -new -x509 -days "${CADDY_CERT_DAYS}" -nodes \
+    -out "${CADDY_TLS_DIR}/server.crt" -keyout "${CADDY_TLS_DIR}/server.key" \
+    -subj "/CN=${CADDY_HOSTNAME}" \
+    -addext "subjectAltName=DNS:${CADDY_HOSTNAME}" \
+    -addext "basicConstraints=critical,CA:FALSE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+    -addext "extendedKeyUsage=serverAuth"
+else
+  echo "Existing Caddy TLS certificate found at ${CADDY_TLS_DIR}/server.crt; leaving it in place."
+fi
+chown root:caddy "${CADDY_TLS_DIR}/server.key"
+chmod 0640 "${CADDY_TLS_DIR}/server.key"
+chmod 0644 "${CADDY_TLS_DIR}/server.crt"
+
+if [[ -f ${CADDYFILE} ]] && ! grep -qF "${CADDY_HOSTNAME}:${CADDY_LISTEN_PORT}" "${CADDYFILE}" 2>/dev/null; then
+  ensure_backup_dir
+  cp -a "${CADDYFILE}" "${BACKUP_DIR}/Caddyfile"
+fi
+# reverse_proxy targets slickchook's bind_addr default (127.0.0.1:8080, set
+# above when CONFIG_PATH is first created). If bind_addr is later customized
+# in ${CONFIG_PATH}, update this target to match.
+cat > "${CADDYFILE}" <<EOF
+{
+  auto_https off
+}
+${CADDY_HOSTNAME}:${CADDY_LISTEN_PORT} {
+  tls ${CADDY_TLS_DIR}/server.crt ${CADDY_TLS_DIR}/server.key
+  reverse_proxy 127.0.0.1:8080
+}
+EOF
+systemctl enable --now caddy.service
+systemctl reload caddy.service || systemctl restart caddy.service
+
 runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/slickchook-runner" --help >/dev/null 2>&1
 systemctl is-active --quiet slickchook.service || die "slickchook.service did not start"
 
@@ -199,9 +270,16 @@ trap - EXIT
 
 echo "Slickchook installed successfully."
 stat -c '%A %a %U:%G %n' "${INSTALL_DIR}/slickchook-runner"
-echo "MCP endpoint: http://127.0.0.1:8080/sse"
+echo "MCP endpoint (local, plaintext): http://127.0.0.1:8080/sse"
+echo "MCP endpoint (via Caddy, TLS):   https://${CADDY_HOSTNAME}:${CADDY_LISTEN_PORT}/sse"
+echo "Connecting clients must resolve '${CADDY_HOSTNAME}' to this host (e.g. via"
+echo "/etc/hosts or DNS) and trust exactly this certificate -- not a shared CA"
+echo "or the system trust store -- pinned at provisioning time, not on first use:"
+echo "  ${CADDY_TLS_DIR}/server.crt"
+openssl x509 -in "${CADDY_TLS_DIR}/server.crt" -noout -fingerprint -sha256
 echo "Plugin manager: ${PLUGIN_COMMAND}"
 echo "Logs: journalctl -u slickchook.service -n 100 --no-pager"
+echo "Caddy logs: journalctl -u caddy.service -n 100 --no-pager"
 if [[ -n ${BACKUP_DIR} ]]; then
   echo "Backup of replaced files: ${BACKUP_DIR}"
 fi

@@ -276,3 +276,30 @@ outright rather than tolerating a certificate it can't verify against the
 host's native trust store, and it's authoritative over whatever `sslmode`
 (if any) is present in `DATABASE_URL` itself, rather than merely
 supplementing it.
+
+### SC-014: Caddy front-end certificate must be pinned per instance, not shared
+
+Status: Mitigated, provisioning discipline required  
+Severity: High if the certificate is trusted broadly rather than pinned
+
+The Ubuntu installer and `.deb` package front `slickchook` with Caddy for
+TLS (see `RUNNER.md`), generating a self-signed certificate once per
+instance rather than obtaining one from a shared/public CA — there is no
+meaningful public hostname for an internal, per-deployment endpoint.
+Connecting clients must be configured to trust *only* that specific
+certificate (delivered by whatever already-authoritative process
+provisions both sides, e.g. at VM-pair creation time), not a shared
+organization-wide CA and not the system trust store. Trusting a shared CA
+across a fleet means every client trusts every instance, which is broader
+than any single client-to-server pairing needs; trust-on-first-connection
+is a weaker fallback (whatever intercepts the first connection is trusted
+permanently) that should only be used if there is no shared provisioning
+process able to deliver the real certificate directly. The certificate is
+deliberately never regenerated on reinstall/upgrade, since doing so would
+silently invalidate every client's existing pin.
+
+If the installer's fallback path (adding Caddy's official third-party apt
+repository) is used because `caddy` isn't in the target's default repos,
+that is a new supply-chain trust addition equivalent in kind to the
+container-image provenance concerns in SC-003/SC-004 — review it the same
+way before relying on it in production.

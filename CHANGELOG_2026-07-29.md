@@ -79,3 +79,23 @@
   certificate and a fully verified, working connection with the correct
   certificate, exercised through the actual production code path (not a
   mock).
+- Added a Caddy TLS front-end to `scripts/install-ubuntu.sh` and
+  `scripts/build-deb.sh`'s `postinst`, since `slickchook` itself has no
+  built-in transport encryption. Caddy reverse-proxies
+  `CADDY_HOSTNAME:CADDY_LISTEN_PORT` (defaults `slickchook`/`8443`) to the
+  plaintext `127.0.0.1:8080` listener using a self-signed certificate
+  generated once at `/etc/caddy/tls/server.crt`, valid for `CADDY_CERT_DAYS`
+  days (default 365) — all three configurable via environment variables
+  (mind `sudo`'s default env-stripping; use `--preserve-env` or a root
+  shell). The certificate is never regenerated on reinstall, since doing so
+  would silently break certificate pinning on any already-connected client.
+  Connecting clients must resolve and connect via `CADDY_HOSTNAME`, not a
+  bare IP (TLS servers select a certificate by SNI, which clients don't send
+  for IP literals), and should pin the exact certificate delivered at
+  provisioning time rather than trust a shared CA or the system trust store.
+  Documented as `SECURITY_CONSIDERATIONS.md` SC-014 and in `RUNNER.md`.
+  Verified end-to-end in a real environment: the SNI/certificate-selection
+  failure mode when connecting by bare IP, a full TLS handshake and
+  reverse-proxied request through to a real running `slickchook` instance
+  using a hostname-matched pinned certificate, and rejection of an unrelated
+  certificate.
