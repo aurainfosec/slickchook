@@ -64,7 +64,7 @@ runuser -u postgres -- psql -c "ALTER DATABASE slickchook_db OWNER TO slickchook
 if [ ! -e /etc/slickchook/postgres.env ]; then
   pw=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
   runuser -u postgres -- psql -c "ALTER ROLE slickchook PASSWORD '${pw}'" >/dev/null
-  printf 'SLICKCHOOK_STORAGE_BACKEND=postgres\nDATABASE_URL=postgresql://slickchook:%s@127.0.0.1:5432/slickchook_db\n' "$pw" > /etc/slickchook/postgres.env
+  printf 'DATABASE_URL=postgresql://slickchook:%s@127.0.0.1:5432/slickchook_db\n' "$pw" > /etc/slickchook/postgres.env
   chown root:slickchook /etc/slickchook/postgres.env
   chmod 0640 /etc/slickchook/postgres.env
 fi

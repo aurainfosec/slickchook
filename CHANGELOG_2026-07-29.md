@@ -40,3 +40,9 @@
 - These new tools share the same (currently nonexistent) authentication
   boundary as the rest of the MCP surface — see `SECURITY_CONSIDERATIONS.md`
   SC-012.
+- Fixed `scripts/build-deb.sh`'s `postinst`, which still wrote the removed
+  `SLICKCHOOK_STORAGE_BACKEND=postgres` line into `/etc/slickchook/postgres.env`
+  alongside `DATABASE_URL` — missed when the SQLite backend was removed above.
+  Harmless (the current binary ignores that variable), but stale. Verified by
+  building a real `.deb` with `scripts/build-deb.sh` and inspecting its
+  `postinst` and bundled `migrations/postgres/` contents.
