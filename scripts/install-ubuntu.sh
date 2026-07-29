@@ -71,8 +71,7 @@ runuser -u postgres -- psql --command "ALTER DATABASE ${DB_NAME} OWNER TO ${DB_R
 DB_PASSWORD=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
 runuser -u postgres -- psql --command "ALTER ROLE ${DB_ROLE} PASSWORD '${DB_PASSWORD}';"
 install -d -o root -g "${SERVICE_GROUP}" -m 0750 /etc/slickchook
-printf 'DATABASE_URL=postgresql://%s:%s@127.0.0.1:5432/%s\n' \\
-  "${DB_ROLE}" "${DB_PASSWORD}" "${DB_NAME}" > "${DB_ENV}"
+printf 'DATABASE_URL=postgresql://%s:%s@127.0.0.1:5432/%s\n' "${DB_ROLE}" "${DB_PASSWORD}" "${DB_NAME}" > "${DB_ENV}"
 chown root:"${SERVICE_GROUP}" "${DB_ENV}"
 chmod 0640 "${DB_ENV}"
 

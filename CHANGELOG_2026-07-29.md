@@ -46,3 +46,14 @@
   Harmless (the current binary ignores that variable), but stale. Verified by
   building a real `.deb` with `scripts/build-deb.sh` and inspecting its
   `postinst` and bundled `migrations/postgres/` contents.
+- Fixed a real bug in `scripts/install-ubuntu.sh`, present since PostgreSQL
+  support was first added: the line writing `DATABASE_URL` into
+  `/etc/slickchook/postgres.env` ended in `\\` (two backslashes) rather than a
+  proper `\` line continuation. Bash parses that as a complete `printf`
+  command (with no output redirection) followed by a second statement that
+  tries to execute `"${DB_ROLE}"` (i.e. `slickchook`) as a program — which
+  fails with `command not found`, and under `set -e` aborts the script right
+  there, *after* the role's password has already been rotated via `ALTER
+  ROLE` but *before* the new password is ever written to disk. Found when
+  this exact failure occurred during a real production redeploy. Fixed by
+  putting the `printf` on a single line.
