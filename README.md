@@ -1,46 +1,80 @@
 # slickchook
 
+Slickchook is an MCP (Model Context Protocol) server that lets an AI agent
+drive real security and reconnaissance tools — nmap, testssl, Nuclei,
+Subfinder, Feroxbuster, OSV-Scanner, gowitness, Kiterunner, websocat, a
+GraphQL introspection checker, and more — against authorized targets, with
+every invocation sandboxed, validated, and logged. It is a controlled
+execution layer between an MCP client and a fleet of Dockerized pentest
+tools, not a general-purpose shell.
 
+## Architecture
+
+**Two-binary privilege split.** `slickchook` is the long-running,
+unprivileged MCP server (Rust, [`rmcp`](https://crates.io/crates/rmcp) over
+SSE) and never touches Docker directly. `slickchook-runner` is a separate
+binary installed `root:docker` with the setgid bit set — the only process
+with Docker socket access. The server invokes it as a subprocess per run
+with structured argv, never a shell, so there is no command-injection
+surface between the two. See [`RUNNER.md`](RUNNER.md) for the deployment
+model and enforcement details.
+
+**Plugins are data, not code.** Each plugin is a TOML manifest declaring a
+container image, fixed/default arguments, explicitly declared `options` and
+`arguments` (anything undeclared is rejected), and a Docker policy: network
+(`none`/`bridge` only), memory/CPU/pids/timeout limits, tmpfs mounts, and an
+allow-listed capability (`[]` or `NET_RAW`). The runner re-validates this
+manifest independently before touching Docker and enforces a read-only root
+filesystem, non-root user, `--cap-drop ALL`, and `no-new-privileges` on
+every container. Plugin packages are installed and versioned independently
+of the core server — see [`PLUGINS.md`](PLUGINS.md).
+
+**Per-run isolation and artifacts.** Every `run_plugin` call gets a UUID,
+its own `artifacts/<run_id>/` directory (the only writable mount inside the
+container), and captured `stdout.txt`/`stderr.txt` plus any files the tool
+wrote. A read-only `/input` staging mount lets one run's output feed a
+later run via `input_run_id`, confined and canonicalized to the artifact
+root — the basis of fetch-then-analyze pipelines (e.g. `screensanitize`,
+`osvscanner`).
+
+**MCP surface:** `run_plugin` (synchronous), `start_plugin` /
+`plugin_status` / `plugin_cancel` (asynchronous jobs), `list_plugins`,
+`health`.
+
+**Persistence.** A `RunStore` trait abstracts run metadata (plugin,
+container, status, exit code, timestamps, input JSON) behind two
+implementations: `SqliteStore` (the current default, single-node) and
+`PostgresStore` (opt-in via `SLICKCHOOK_STORAGE_BACKEND=postgres` and
+`DATABASE_URL`), aimed at a future durable, multi-client MCP deployment.
+
+## Security model
+
+Trust boundaries and open concerns are tracked as a living document in
+[`SECURITY_CONSIDERATIONS.md`](SECURITY_CONSIDERATIONS.md). In short: the
+MCP client and all plugin parameters are untrusted; a plugin package is
+untrusted until the privileged installer has validated and copied it;
+plugin containers remain untrusted even once installed; the setgid runner
+and Docker socket access are the hard privilege boundary. Artifacts
+(screenshots, fetched pages, tool output) are treated as sensitive report
+data by design, not a bug to fix.
+
+## Status and roadmap
+
+Slickchook is under active development. See
+[`ROADMAP.md`](ROADMAP.md) for planned work — multi-stage recon
+orchestration, a safer static-analysis pipeline, and a multi-client MCP
+deployment (PostgreSQL-backed sessions, Streamable HTTP, OAuth 2.1) — and
+the dated `CHANGELOG_*.md` files for a record of what has shipped.
 
 ## Getting started
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+For a production deployment on Ubuntu Server, see
+[`RUNNER.md`](RUNNER.md). For plugin installation and authoring, see
+[`PLUGINS.md`](PLUGINS.md).
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+For local development:
 
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+```bash
+cargo build
+cargo test
 ```
-cd existing_repo
-git remote add origin https://git.aurainfosec.com/martin.tan/slickchook.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-- [ ] [Set up project integrations](https://git.aurainfosec.com/martin.tan/slickchook/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
