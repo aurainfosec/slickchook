@@ -1,4 +1,4 @@
-use crate::storage::{PostgresStore, RunSummary};
+use crate::storage::{DatabaseTls, PostgresStore, RunSummary};
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -155,6 +155,7 @@ impl PluginManager {
         plugins_dir: impl Into<PathBuf>,
         artifacts_dir: impl Into<PathBuf>,
         runtime: &tokio::runtime::Handle,
+        database_tls: DatabaseTls,
     ) -> Result<Self> {
         let plugins_dir = plugins_dir.into();
         let artifacts_dir = artifacts_dir.into();
@@ -163,6 +164,7 @@ impl PluginManager {
             runtime,
             &url,
             artifacts_dir.clone(),
+            database_tls,
         )?);
         runtime.block_on(store.init_schema())?;
         let manager = Self {
@@ -1017,9 +1019,13 @@ mod tests {
         }
 
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let manager =
-            PluginManager::new(plugins_dir.clone(), artifacts_dir.clone(), runtime.handle())
-                .unwrap();
+        let manager = PluginManager::new(
+            plugins_dir.clone(),
+            artifacts_dir.clone(),
+            runtime.handle(),
+            DatabaseTls::Disable,
+        )
+        .unwrap();
 
         let run_id = format!("verify-{}", uuid::Uuid::new_v4());
         let target = format!("verify-{}.example", uuid::Uuid::new_v4());
@@ -1039,9 +1045,13 @@ mod tests {
         let canonical_run_dir = std::fs::canonicalize(&run_dir).unwrap();
 
         runtime.block_on(async {
-            let seeding_store = crate::storage::PostgresStore::connect(&url, artifacts_dir.clone())
-                .await
-                .unwrap();
+            let seeding_store = crate::storage::PostgresStore::connect(
+                &url,
+                artifacts_dir.clone(),
+                DatabaseTls::Disable,
+            )
+            .await
+            .unwrap();
             seeding_store
                 .record_run(&crate::storage::StoredRun {
                     run_id: &run_id,

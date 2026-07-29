@@ -259,3 +259,20 @@ content as untrusted report data and logs each read via `tracing`, but that
 audit trail has no caller/subject identity to attach, only what was read and
 when. Do not expose this server to untrusted or multi-tenant callers until the
 OAuth 2.1 work in `ROADMAP.md` lands and these tools are gated by it.
+
+### SC-013: PostgreSQL connection TLS is opt-in, not default
+
+Status: Mitigated, configuration required for non-local deployments  
+Severity: High if `DATABASE_URL` ever points at a non-loopback host
+
+`database_tls` (in `slickchook.toml`) controls whether the connection to
+PostgreSQL is encrypted; it defaults to `"disable"`, matching the documented
+loopback-only deployment model in `RUNNER.md`. Set it to `"require"` before
+pointing `DATABASE_URL` at any host that isn't a trusted loopback or local
+socket — otherwise the DB password, all run metadata, and any plaintext
+sensitive plugin inputs (see SC-005) cross the network unencrypted. There is
+no unverified/opportunistic TLS tier: `"require"` fails the connection
+outright rather than tolerating a certificate it can't verify against the
+host's native trust store, and it's authoritative over whatever `sslmode`
+(if any) is present in `DATABASE_URL` itself, rather than merely
+supplementing it.

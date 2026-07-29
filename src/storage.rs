@@ -1,7 +1,81 @@
-use anyhow::{Result, bail};
-use serde::Serialize;
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{Client, NoTls, config::SslMode};
+
+/// Whether to require TLS on the connection to PostgreSQL. This is an explicit,
+/// authoritative setting rather than something inferred from `DATABASE_URL`'s
+/// own `sslmode` query parameter (if any): the parsed `Config`'s `ssl_mode` is
+/// always overridden to match, so a misconfigured or missing `sslmode` in the
+/// connection string can't silently downgrade an operator's intent either way.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DatabaseTls {
+    /// No TLS. Suitable only when PostgreSQL is reachable exclusively over a
+    /// trusted loopback or local socket, which is the default deployment model
+    /// documented in RUNNER.md.
+    #[default]
+    Disable,
+    /// Require TLS, verifying the server certificate against the host's native
+    /// trust store. The connection fails outright if the server doesn't (or
+    /// can't) negotiate TLS -- there is no "opportunistic"/unverified middle
+    /// tier, since that would silently tolerate a stripped-TLS
+    /// machine-in-the-middle without ever surfacing an error.
+    Require,
+}
+
+/// Installs rustls's `ring` crypto provider as the process default, required
+/// before constructing any `rustls::ClientConfig`. Safe to call more than
+/// once; only the first call has any effect.
+fn ensure_crypto_provider_installed() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
+fn build_rustls_connector() -> Result<tokio_postgres_rustls::MakeRustlsConnect> {
+    ensure_crypto_provider_installed();
+    let loaded = rustls_native_certs::load_native_certs();
+    for error in &loaded.errors {
+        tracing::warn!(%error, "error loading a native root certificate for PostgreSQL TLS");
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    let (added, ignored) = roots.add_parsable_certificates(loaded.certs);
+    tracing::debug!(
+        added,
+        ignored,
+        "loaded native root certificates for PostgreSQL TLS"
+    );
+    if added == 0 {
+        bail!("no usable root certificates found; cannot verify a TLS PostgreSQL connection");
+    }
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(tokio_postgres_rustls::MakeRustlsConnect::new(config))
+}
+
+fn parse_config(database_url: &str, tls: DatabaseTls) -> Result<tokio_postgres::config::Config> {
+    let mut config: tokio_postgres::config::Config = database_url
+        .parse()
+        .context("failed to parse DATABASE_URL")?;
+    config.ssl_mode(match tls {
+        DatabaseTls::Disable => SslMode::Disable,
+        DatabaseTls::Require => SslMode::Require,
+    });
+    Ok(config)
+}
+
+async fn log_connection_errors<S, T>(connection: tokio_postgres::Connection<S, T>)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    if let Err(error) = connection.await {
+        tracing::error!(%error, "postgresql connection closed");
+    }
+}
 
 pub struct StoredRun<'a> {
     pub run_id: &'a str,
@@ -70,13 +144,25 @@ pub struct PostgresStore {
 }
 
 impl PostgresStore {
-    pub async fn connect(database_url: &str, artifacts_root: std::path::PathBuf) -> Result<Self> {
-        let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
-        tokio::spawn(async move {
-            if let Err(error) = connection.await {
-                tracing::error!(%error, "postgresql connection closed");
+    pub async fn connect(
+        database_url: &str,
+        artifacts_root: std::path::PathBuf,
+        tls: DatabaseTls,
+    ) -> Result<Self> {
+        let config = parse_config(database_url, tls)?;
+        let client = match tls {
+            DatabaseTls::Disable => {
+                let (client, connection) = config.connect(NoTls).await?;
+                tokio::spawn(log_connection_errors(connection));
+                client
             }
-        });
+            DatabaseTls::Require => {
+                let connector = build_rustls_connector()?;
+                let (client, connection) = config.connect(connector).await?;
+                tokio::spawn(log_connection_errors(connection));
+                client
+            }
+        };
         Ok(Self {
             client,
             artifacts_root,
@@ -93,13 +179,22 @@ impl PostgresStore {
         handle: &tokio::runtime::Handle,
         database_url: &str,
         artifacts_root: std::path::PathBuf,
+        tls: DatabaseTls,
     ) -> Result<Self> {
-        let (client, connection) = handle.block_on(tokio_postgres::connect(database_url, NoTls))?;
-        handle.spawn(async move {
-            if let Err(error) = connection.await {
-                tracing::error!(%error, "postgresql connection closed");
+        let config = parse_config(database_url, tls)?;
+        let client = match tls {
+            DatabaseTls::Disable => {
+                let (client, connection) = handle.block_on(config.connect(NoTls))?;
+                handle.spawn(log_connection_errors(connection));
+                client
             }
-        });
+            DatabaseTls::Require => {
+                let connector = build_rustls_connector()?;
+                let (client, connection) = handle.block_on(config.connect(connector))?;
+                handle.spawn(log_connection_errors(connection));
+                client
+            }
+        };
         Ok(Self {
             client,
             artifacts_root,
@@ -188,7 +283,7 @@ mod tests {
             std::env::temp_dir().join(format!("slickchook-pg-outside-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(run.join("input")).unwrap();
         std::fs::create_dir_all(outside.join("input")).unwrap();
-        let store = super::PostgresStore::connect(&url, root.clone())
+        let store = super::PostgresStore::connect(&url, root.clone(), super::DatabaseTls::Disable)
             .await
             .unwrap();
         store.init_schema().await.unwrap();
@@ -265,9 +360,10 @@ mod tests {
             .unwrap();
         assert!(store.resolve_completed_input(&outside_id).await.is_err());
 
-        let reopened = super::PostgresStore::connect(&url, root.clone())
-            .await
-            .unwrap();
+        let reopened =
+            super::PostgresStore::connect(&url, root.clone(), super::DatabaseTls::Disable)
+                .await
+                .unwrap();
         assert!(reopened.resolve_completed_input(&run_id).await.is_ok());
 
         #[cfg(unix)]
@@ -298,5 +394,72 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+    }
+
+    /// Requires a PostgreSQL instance with TLS enabled (`ssl = on`):
+    /// `TEST_POSTGRES_TLS_URL` its connection string, `TEST_POSTGRES_TLS_CA`
+    /// a PEM file containing (only) its server certificate, and
+    /// `TEST_POSTGRES_TLS_UNRELATED_CA` a PEM cert unrelated to that server.
+    ///
+    /// Both directions are asserted sequentially in one test (rather than as
+    /// two separate `#[tokio::test]`s) because both mutate the
+    /// process-global `SSL_CERT_FILE` env var -- `rustls-native-certs` (used
+    /// by the real `build_rustls_connector`) loads trust roots from it
+    /// instead of the OS store whenever it's set. Two separate tests would
+    /// race under the default parallel test runner, each capable of
+    /// clobbering the other's `SSL_CERT_FILE` mid-connection.
+    ///
+    /// First connects with `DatabaseTls::Require` pointed at the unrelated
+    /// cert and confirms it's rejected, proving TLS is actually attempted
+    /// and verified, not silently skipped. Then points `SSL_CERT_FILE` at
+    /// the real server certificate and confirms a fully verified connection
+    /// succeeds and is actually usable (not just that the handshake
+    /// completes) -- exercising the exact production TLS path end to end.
+    #[tokio::test]
+    async fn postgres_store_tls_require_verifies_certificate() {
+        let (Ok(url), Ok(ca_path), Ok(unrelated_ca_path)) = (
+            std::env::var("TEST_POSTGRES_TLS_URL"),
+            std::env::var("TEST_POSTGRES_TLS_CA"),
+            std::env::var("TEST_POSTGRES_TLS_UNRELATED_CA"),
+        ) else {
+            return;
+        };
+
+        // SAFETY: no other test in this crate reads or writes SSL_CERT_FILE.
+        unsafe {
+            std::env::set_var("SSL_CERT_FILE", &unrelated_ca_path);
+        }
+        let untrusted_root =
+            std::env::temp_dir().join(format!("slickchook-tls-{}", uuid::Uuid::new_v4()));
+        let error =
+            super::PostgresStore::connect(&url, untrusted_root, super::DatabaseTls::Require)
+                .await
+                .err()
+                .unwrap();
+        let message = format!("{error:#}");
+        assert!(
+            message.to_lowercase().contains("certificate")
+                || message.to_lowercase().contains("unknownissuer")
+                || message.to_lowercase().contains("invalid peer certificate"),
+            "expected a certificate-verification failure, got: {message}"
+        );
+
+        // SAFETY: no other test in this crate reads or writes SSL_CERT_FILE.
+        unsafe {
+            std::env::set_var("SSL_CERT_FILE", &ca_path);
+        }
+        let trusted_root =
+            std::env::temp_dir().join(format!("slickchook-tls-{}", uuid::Uuid::new_v4()));
+        let store = super::PostgresStore::connect(&url, trusted_root, super::DatabaseTls::Require)
+            .await
+            .unwrap();
+        store.init_schema().await.unwrap();
+        assert!(
+            store
+                .list_runs_by_target("no-such-target-tls.example", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

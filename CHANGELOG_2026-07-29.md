@@ -65,3 +65,17 @@
   build-time name/version (`Implementation::default()`'s `env!()` calls
   resolve inside the `rmcp` crate, not ours) instead of Slickchook's; it now
   explicitly reports `{"name":"slickchook","version":"0.2.0"}`.
+- Added a `database_tls` setting (`slickchook.toml`; `"disable"` default,
+  `"require"`) controlling whether the connection to PostgreSQL is
+  encrypted. Previously the connection was always plaintext (`NoTls`,
+  hardcoded), fine for the documented loopback-only deployment model but a
+  landmine for any future non-local `DATABASE_URL`. `"require"` verifies the
+  server certificate against the host's native trust store and fails the
+  connection outright if it doesn't check out — there's no unverified
+  middle tier — and is authoritative over any `sslmode` already present in
+  `DATABASE_URL` rather than merely supplementing it. Documented as
+  `SECURITY_CONSIDERATIONS.md` SC-013. Verified against a real TLS-enabled
+  PostgreSQL instance: both the rejection of an untrusted/unrelated
+  certificate and a fully verified, working connection with the correct
+  certificate, exercised through the actual production code path (not a
+  mock).
