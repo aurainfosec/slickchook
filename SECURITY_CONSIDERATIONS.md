@@ -242,3 +242,20 @@ not send application messages or credentials. Only explicitly authorized
 `ws://` or `wss://` endpoints should be supplied. Treat handshake output as
 untrusted artifact data and do not infer authorization or message-level safety
 from a successful connection alone.
+
+### SC-012: Artifact-read tools share `run_plugin`'s trust boundary
+
+Status: Accepted, pending MCP authorization  
+Severity: High once the server is reachable by more than one trusted client
+
+`list_runs_by_target`, `list_run_artifacts`, and `read_artifact` let any MCP
+caller enumerate every recorded run across every target and read any of their
+artifact files, subject only to canonical-root containment and a bounded read
+size — there is no per-caller authentication or authorization anywhere in
+Slickchook yet, so this is not a new exposure relative to `run_plugin`, but it
+does make it far easier to browse everything at once rather than only what a
+single `run_plugin` call itself returned. `read_artifact` labels returned
+content as untrusted report data and logs each read via `tracing`, but that
+audit trail has no caller/subject identity to attach, only what was read and
+when. Do not expose this server to untrusted or multi-tenant callers until the
+OAuth 2.1 work in `ROADMAP.md` lands and these tools are gated by it.
