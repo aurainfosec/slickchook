@@ -234,6 +234,8 @@ Docker execution is handled by the separate `slickchook-runner` binary. See `RUN
 
 Docker runs with restrictive defaults: no network unless a manifest explicitly requests `bridge`, read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, a non-root user, process limits, memory limits, CPU limits, no stdin, and only the run artifact directory mounted writable at `/artifacts`. Manifests can declare narrowly scoped tmpfs mounts, such as `/tmp`, when a container needs temporary space.
 
+Plugin containers always run as UID 65534. Some tools restrict permissions on their own output files as they write them (for example, `testssl.sh` writing its JSON/HTML reports); left alone, that leaves the file unreadable by the Slickchook service's own user afterward, so `read_artifact` and any other host-side read would fail even though the file exists. The runner handles this automatically: after every plugin container exits (success, failure, or a timeout kill), it runs one more short-lived container as the same UID to make everything under `/artifacts` readable again, since only a file's owner (or root) may relax its own permissions. Plugin authors do not need to work around this themselves.
+
 The runner only allows these capability modes:
 
 - `cap_add = []`: default non-privileged mode

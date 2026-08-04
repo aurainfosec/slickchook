@@ -54,10 +54,20 @@ async fn run() -> Result<()> {
     );
     tracing::info!(container = %manifest.container, args = ?container_args, "launching plugin container");
 
+    let container_name = format!(
+        "slickchook-{}",
+        artifact_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("artifact dir has no usable name"))?
+    );
+
     let mut command = Command::new("docker");
     command
         .arg("run")
         .arg("--rm")
+        .arg("--name")
+        .arg(&container_name)
         .arg("--network")
         .arg(&manifest.docker.network)
         .arg("--read-only")
@@ -104,18 +114,42 @@ async fn run() -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let output = time::timeout(
+    let output = match time::timeout(
         Duration::from_secs(manifest.docker.timeout_seconds),
         command.output(),
     )
     .await
-    .with_context(|| {
-        format!(
-            "plugin `{}` exceeded timeout of {} seconds",
-            manifest.name, manifest.docker.timeout_seconds
-        )
-    })?
-    .context("failed to run docker")?;
+    {
+        Ok(result) => result.context("failed to run docker")?,
+        Err(_) => {
+            // The `docker run` client is still attached and the container is still
+            // running under dockerd; dropping our awaited future only abandons the
+            // client, it does not stop the container. Stop it by its deterministic
+            // name directly so a slow/hung tool doesn't leak a running container.
+            let _ = Command::new("docker")
+                .arg("kill")
+                .arg(&container_name)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await;
+            fixup_artifact_permissions(&artifact_dir).await;
+            bail!(
+                "plugin `{}` exceeded timeout of {} seconds",
+                manifest.name,
+                manifest.docker.timeout_seconds
+            );
+        }
+    };
+
+    // Plugin containers run as UID 65534, and some tools (e.g. testssl.sh)
+    // restrict permissions on their own output files as they write them,
+    // leaving them unreadable by the slickchook service's own user
+    // afterward. Fix up permissions as the same UID that owns the files
+    // (only their owner, or root, may relax them), immediately after the
+    // container exits, before anything tries to read them back.
+    fixup_artifact_permissions(&artifact_dir).await;
 
     io::stdout()
         .write_all(&output.stdout)
@@ -128,6 +162,60 @@ async fn run() -> Result<()> {
         Ok(())
     } else {
         std::process::exit(output.status.code().unwrap_or(1));
+    }
+}
+
+/// Some plugin tools (e.g. testssl.sh) restrict permissions on their own
+/// output files as they write them, leaving them unreadable by the
+/// slickchook service's own user afterward. Only a file's owner (or root)
+/// may relax its permissions, so this runs a trivial follow-up container as
+/// the same UID the plugin container ran as, making everything it wrote
+/// readable. Best-effort: failures are logged, not propagated, since the
+/// plugin's own result matters more than this cleanup step.
+async fn fixup_artifact_permissions(artifact_dir: &Path) {
+    let mut command = Command::new("docker");
+    command
+        .arg("run")
+        .arg("--rm")
+        .arg("--network")
+        .arg("none")
+        .arg("--read-only")
+        .arg("--cap-drop")
+        .arg("ALL")
+        .arg("--security-opt")
+        .arg("no-new-privileges")
+        .arg("--user")
+        .arg("65534:65534")
+        .arg("--volume")
+        .arg(format!("{}:/artifacts:rw", artifact_dir.display()))
+        .arg("alpine:3.21")
+        .arg("find")
+        .arg("/artifacts")
+        .arg("-mindepth")
+        .arg("1")
+        .arg("-exec")
+        .arg("chmod")
+        .arg("a+rX")
+        .arg("{}")
+        .arg("+")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    match time::timeout(Duration::from_secs(30), command.output()).await {
+        Ok(Ok(output)) if !output.status.success() => {
+            eprintln!(
+                "slickchook runner: artifact permission fixup failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Ok(Err(error)) => {
+            eprintln!("slickchook runner: failed to run artifact permission fixup: {error}");
+        }
+        Err(_) => {
+            eprintln!("slickchook runner: artifact permission fixup timed out");
+        }
+        Ok(Ok(_)) => {}
     }
 }
 
