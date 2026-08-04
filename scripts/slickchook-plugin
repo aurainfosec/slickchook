@@ -6,6 +6,7 @@ readonly SERVICE_GROUP="slickchook"
 readonly PLUGIN_ROOT="/var/lib/slickchook/plugins"
 readonly BACKUP_ROOT="/var/backups/slickchook/plugin-packages"
 readonly LOCK_FILE="/run/lock/slickchook-plugin.lock"
+readonly SLICKCHOOK_BIN="/opt/slickchook/slickchook"
 
 STAGE=""
 
@@ -66,6 +67,66 @@ check_container_image() {
     fi
     die "container image unavailable for ${name}"
   fi
+  echo "${image}"
+}
+
+# Reads a manifest's declared `[[assets]]` as `source\tdest\tmin_size_bytes`
+# lines (source is empty when unset). Manifest schema validation (including
+# path-safety checks on source/dest) already happened inside --print-assets
+# itself via the same load_manifest() the service uses.
+print_assets() {
+  local manifest=$1
+  "${SLICKCHOOK_BIN}" --print-assets "${manifest}"
+}
+
+# Before building a plugin's own image, verify every asset the manifest
+# declares a `source` for is actually present in the staged package — so a
+# package copied or checked out without a required bundled file (e.g. a
+# wordlist) fails installation immediately instead of silently building a
+# broken image from whatever the Dockerfile's COPY happens to find.
+check_assets_in_package() {
+  local stage=$1 manifest=$2 name=$3 source dest min_size
+  while IFS=$'\t' read -r source dest min_size; do
+    [[ -n ${dest} ]] || continue
+    [[ -n ${source} ]] || continue
+    local candidate="${stage}/${source}"
+    [[ -f ${candidate} ]] \
+      || die "${name} declares asset source \`${source}\` (for ${dest}) but it is missing from the package"
+    local size
+    size=$(stat -c '%s' "${candidate}")
+    [[ ${size} -ge ${min_size} ]] \
+      || die "${name} asset source \`${source}\` is ${size} bytes, below its declared minimum of ${min_size}"
+  done < <(print_assets "${manifest}")
+}
+
+# After a plugin's image is built or confirmed pulled, verify every declared
+# asset actually landed at `dest` inside it, regardless of `source` — this
+# also catches a Dockerfile whose COPY drifted out of sync with the manifest,
+# or an upstream image that never bundled what the manifest expects. Prints
+# an error and returns non-zero rather than dying directly, since the
+# freshly-built-image call site needs to restore the previous image's tag
+# before aborting installation.
+check_assets_in_image() {
+  local image=$1 manifest=$2 name=$3 dest min_size source
+  while IFS=$'\t' read -r source dest min_size; do
+    [[ -n ${dest} ]] || continue
+    local cid tmpfile size
+    cid=$(docker create "${image}") || { echo "error: ${name}: failed to create a container from ${image} to verify asset ${dest}" >&2; return 1; }
+    tmpfile=$(mktemp)
+    if ! docker cp "${cid}:${dest}" "${tmpfile}" >/dev/null 2>&1; then
+      docker rm "${cid}" >/dev/null 2>&1 || true
+      rm -f "${tmpfile}"
+      echo "error: ${name}: declared asset ${dest} is missing from the built image ${image}" >&2
+      return 1
+    fi
+    size=$(stat -c '%s' "${tmpfile}")
+    docker rm "${cid}" >/dev/null 2>&1 || true
+    rm -f "${tmpfile}"
+    if [[ ${size} -lt ${min_size} ]]; then
+      echo "error: ${name}: declared asset ${dest} in ${image} is ${size} bytes, below its declared minimum of ${min_size}" >&2
+      return 1
+    fi
+  done < <(print_assets "${manifest}")
 }
 
 restart_service() {
@@ -93,20 +154,32 @@ install_plugin() {
   cp -a "${source}/." "${STAGE}/"
   normalize_package "${STAGE}"
 
+  local image manifest="${STAGE}/${name}.toml"
   if [[ -f ${STAGE}/Dockerfile ]]; then
     local_image="slickchook-plugin/${name}:local"
     rollback_image="slickchook-plugin/${name}:rollback-$$"
     grep -Eq "^container[[:space:]]*=[[:space:]]*\"${local_image}\"[[:space:]]*$" \
-      "${STAGE}/${name}.toml" \
+      "${manifest}" \
       || die "a package with a Dockerfile must declare container = \"${local_image}\""
+    check_assets_in_package "${STAGE}" "${manifest}" "${name}"
     if docker image inspect "${local_image}" >/dev/null 2>&1; then
       docker tag "${local_image}" "${rollback_image}"
       had_previous_image=true
     fi
     echo "Building plugin-owned image ${local_image}."
     docker build --pull --tag "${local_image}" "${STAGE}"
+    image="${local_image}"
+    if ! check_assets_in_image "${local_image}" "${manifest}" "${name}"; then
+      if [[ ${had_previous_image} == true ]]; then
+        docker tag "${rollback_image}" "${local_image}"
+        docker image rm "${rollback_image}" >/dev/null || true
+      fi
+      die "${name} was not installed: built image is missing a declared asset"
+    fi
   else
-    check_container_image "${STAGE}/${name}.toml" "${name}"
+    image=$(check_container_image "${manifest}" "${name}")
+    check_assets_in_image "${image}" "${manifest}" "${name}" \
+      || die "${name} was not installed: pulled image is missing a declared asset"
   fi
 
   systemctl stop "${SERVICE}"

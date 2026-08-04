@@ -3,6 +3,12 @@ container = "slickchook-plugin/feroxbuster:local"
 description = "Performs a bounded, non-recursive Feroxbuster content-discovery check against one explicitly authorized URL using the package's small reviewable wordlist."
 fixed_args = ["--silent", "--no-recursion", "--threads", "10", "--rate-limit", "20", "--wordlist", "/wordlist.txt"]
 
+[[assets]]
+source = "wordlist.txt"
+dest = "/wordlist.txt"
+min_size_bytes = 50
+description = "Small reviewed content-discovery wordlist bundled into the image."
+
 [[options]]
 name = "target"
 description = "Authorized HTTP or HTTPS base URL."

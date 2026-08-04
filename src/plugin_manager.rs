@@ -51,6 +51,32 @@ pub struct PluginManifest {
     pub arguments: Vec<PluginArgument>,
     #[serde(default)]
     pub docker: DockerPolicy,
+    #[serde(default)]
+    pub assets: Vec<PluginAsset>,
+}
+
+/// Declares a file the plugin's container image must bundle at a known path,
+/// such as a wordlist. `source`, when set, is a path relative to the plugin
+/// package directory that a local `Dockerfile` build is expected to `COPY`
+/// into the image; `slickchook-plugin install` verifies it exists in the
+/// package *before* building, so a package copied or checked out without it
+/// fails installation immediately instead of silently producing a broken
+/// image. `dest` is always verified against the resulting image itself
+/// (built locally or pulled), regardless of `source`, so drift between a
+/// Dockerfile and what it actually produced is also caught.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PluginAsset {
+    #[serde(default)]
+    pub source: Option<String>,
+    pub dest: String,
+    #[serde(default = "default_min_asset_size_bytes")]
+    pub min_size_bytes: u64,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+fn default_min_asset_size_bytes() -> u64 {
+    1
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -613,6 +639,33 @@ fn validate_manifest(manifest: &PluginManifest) -> Result<()> {
         }
     }
 
+    let mut asset_dests = HashSet::new();
+    for asset in &manifest.assets {
+        validate_asset(asset)?;
+        if !asset_dests.insert(&asset.dest) {
+            bail!("duplicate asset dest `{}`", asset.dest);
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_asset(asset: &PluginAsset) -> Result<()> {
+    if let Some(source) = &asset.source {
+        if source.is_empty()
+            || source.starts_with('/')
+            || source.contains("..")
+            || source.contains('\0')
+        {
+            bail!("asset source `{source}` must be a relative path without `..`");
+        }
+    }
+    if asset.dest.is_empty() || !asset.dest.starts_with('/') || asset.dest.contains("..") {
+        bail!("asset dest `{}` must be an absolute path without `..`", asset.dest);
+    }
+    if asset.min_size_bytes == 0 {
+        bail!("asset `{}` min_size_bytes must be greater than zero", asset.dest);
+    }
     Ok(())
 }
 
@@ -874,6 +927,7 @@ mod tests {
                 default: None,
             }],
             docker: DockerPolicy::default(),
+            assets: Vec::new(),
         };
 
         let input = serde_json::json!({
@@ -903,6 +957,7 @@ mod tests {
             options: Vec::new(),
             arguments: Vec::new(),
             docker: DockerPolicy::default(),
+            assets: Vec::new(),
         };
 
         let input = serde_json::json!({ "unexpected": "value" });
