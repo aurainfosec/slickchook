@@ -18,13 +18,20 @@ die() {
 usage() {
   cat <<'EOF'
 Usage:
-  slickchook-plugin install <plugin-directory> [plugin-name]
+  slickchook-plugin install [--force-rebuild] <plugin-directory> [plugin-name]
   slickchook-plugin remove <plugin-name>
   slickchook-plugin list
 
 A plugin package is a directory named for the plugin and containing a matching
 <plugin-name>.toml manifest. Installs and removals are validated by restarting
 the MCP service; a failed service start automatically rolls back the change.
+
+For a package with a Dockerfile, --force-rebuild passes --no-cache to
+docker build. Without it, an install whose Dockerfile and build context
+are unchanged reuses Docker's cached layers, which is correct and
+expected - not a bug - since the resulting image is identical either way.
+Use --force-rebuild when you specifically want to bypass that cache, for
+example to rule it out while diagnosing a suspected stale image.
 EOF
 }
 
@@ -70,10 +77,15 @@ check_container_image() {
   echo "${image}"
 }
 
-# Reads a manifest's declared `[[assets]]` as `source\tdest\tmin_size_bytes`
-# lines (source is empty when unset). Manifest schema validation (including
-# path-safety checks on source/dest) already happened inside --print-assets
-# itself via the same load_manifest() the service uses.
+# Reads a manifest's declared `[[assets]]` as unit-separator-delimited
+# `source<0x1F>dest<0x1F>min_size_bytes` lines (source is empty when unset).
+# A tab won't work here: bash's `read` treats tab as "IFS whitespace" even
+# when IFS is set to just a tab, so a leading empty field (source, often
+# empty) gets silently stripped instead of preserved, shifting every other
+# field left by one. Unit separator isn't IFS whitespace, so empty fields
+# are preserved regardless of position. Manifest schema validation
+# (including path-safety checks on source/dest) already happened inside
+# --print-assets itself via the same load_manifest() the service uses.
 print_assets() {
   local manifest=$1
   "${SLICKCHOOK_BIN}" --print-assets "${manifest}"
@@ -86,7 +98,7 @@ print_assets() {
 # broken image from whatever the Dockerfile's COPY happens to find.
 check_assets_in_package() {
   local stage=$1 manifest=$2 name=$3 source dest min_size
-  while IFS=$'\t' read -r source dest min_size; do
+  while IFS=$'\x1f' read -r source dest min_size; do
     [[ -n ${dest} ]] || continue
     [[ -n ${source} ]] || continue
     local candidate="${stage}/${source}"
@@ -108,7 +120,7 @@ check_assets_in_package() {
 # before aborting installation.
 check_assets_in_image() {
   local image=$1 manifest=$2 name=$3 dest min_size source
-  while IFS=$'\t' read -r source dest min_size; do
+  while IFS=$'\x1f' read -r source dest min_size; do
     [[ -n ${dest} ]] || continue
     local cid tmpfile size
     cid=$(docker create "${image}") || { echo "error: ${name}: failed to create a container from ${image} to verify asset ${dest}" >&2; return 1; }
@@ -135,8 +147,9 @@ restart_service() {
 }
 
 install_plugin() {
-  local source=$1
-  local name=${2:-$(basename -- "${source}")}
+  local force_rebuild=$1
+  local source=$2
+  local name=${3:-$(basename -- "${source}")}
   local destination backup local_image rollback_image had_previous=false had_previous_image=false
 
   valid_name "${name}" || die "invalid plugin name: ${name}"
@@ -166,8 +179,14 @@ install_plugin() {
       docker tag "${local_image}" "${rollback_image}"
       had_previous_image=true
     fi
-    echo "Building plugin-owned image ${local_image}."
-    docker build --pull --tag "${local_image}" "${STAGE}"
+    local build_args=(--pull --tag "${local_image}")
+    if [[ ${force_rebuild} == true ]]; then
+      build_args+=(--no-cache)
+      echo "Building plugin-owned image ${local_image} (--force-rebuild: bypassing Docker's build cache)."
+    else
+      echo "Building plugin-owned image ${local_image}."
+    fi
+    docker build "${build_args[@]}" "${STAGE}"
     image="${local_image}"
     if ! check_assets_in_image "${local_image}" "${manifest}" "${name}"; then
       if [[ ${had_previous_image} == true ]]; then
@@ -250,8 +269,17 @@ flock -x 9
 
 case ${1:-} in
   install)
-    [[ $# -ge 2 && $# -le 3 ]] || { usage; exit 2; }
-    install_plugin "$2" "${3:-}"
+    shift
+    force_rebuild=false
+    positional=()
+    for arg in "$@"; do
+      case ${arg} in
+        --force-rebuild) force_rebuild=true ;;
+        *) positional+=("${arg}") ;;
+      esac
+    done
+    [[ ${#positional[@]} -ge 1 && ${#positional[@]} -le 2 ]] || { usage; exit 2; }
+    install_plugin "${force_rebuild}" "${positional[0]}" "${positional[1]:-}"
     ;;
   remove)
     [[ $# -eq 2 ]] || { usage; exit 2; }

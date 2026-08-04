@@ -291,8 +291,13 @@ fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("--print-assets requires a manifest path"))?;
         let manifest = slickchook::plugin_manager::load_manifest(std::path::Path::new(&path))?;
         for asset in &manifest.assets {
+            // A tab is bash "IFS whitespace" even when IFS is set to just a
+            // tab, so `read` strips a leading empty field instead of
+            // preserving it - fatal here since `source` is often empty and
+            // comes first. Unit separator (0x1F) isn't IFS whitespace, so
+            // `read` preserves empty fields regardless of position.
             println!(
-                "{}\t{}\t{}",
+                "{}\x1f{}\x1f{}",
                 asset.source.as_deref().unwrap_or(""),
                 asset.dest,
                 asset.min_size_bytes
