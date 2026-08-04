@@ -116,3 +116,29 @@
   `artifacts/plugin_runs.sqlite3`, left over from before the SQLite
   backend was removed; it now correctly says the PostgreSQL `plugin_runs`
   table.
+- Fixed a real bug in the `[[assets]]` feature above, found the first time
+  a plugin with an omitted `source` (`kiterunner`) actually went through
+  the installer: `--print-assets` and the installer's asset checks used a
+  tab as the field delimiter, but bash's `read` treats tab as "IFS
+  whitespace" even when `IFS` is set to just a tab — meaning a *leading*
+  empty field (an omitted `source`, printed first) gets silently stripped
+  rather than preserved, shifting `dest` and `min_size_bytes` left by one
+  field. For `kiterunner` this meant `source` became its `dest` path and
+  `dest` became its `min_size_bytes`, producing the confusing error
+  `kiterunner declares asset source `/opt/kiterunner/routes-small.kite`
+  (for 1024) but it is missing from the package`. `feroxbuster` (whose
+  `source` is set, not omitted) never hit this, which is why it wasn't
+  caught earlier. Switched the delimiter to the ASCII unit separator
+  (`\x1f`), which isn't "IFS whitespace" and so preserves empty fields
+  regardless of position. Verified with a direct parse of both plugins'
+  real `--print-assets` output post-fix (`kiterunner`'s `source` now
+  reads back empty rather than shifted) and by re-running
+  `check_assets_in_package` against `kiterunner`'s real package
+  directory.
+- Added `slickchook-plugin install --force-rebuild`, which passes
+  `--no-cache` to `docker build` for a package with a `Dockerfile`.
+  Without it, an install whose `Dockerfile` and build context are
+  unchanged correctly reuses Docker's cached layers — expected, not a
+  bug, since the resulting image is identical either way — but this
+  gives an explicit way to bypass that cache when specifically
+  diagnosing or ruling out a suspected stale image.
