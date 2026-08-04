@@ -467,6 +467,13 @@ mod tests {
     /// `Error::is_closed()` ("connection closed") until the whole process
     /// was restarted. This asserts a query issued after the kill succeeds
     /// anyway, and that a write (`record_run`) does too.
+    ///
+    /// The kill/verify cycle is repeated twice (not just once), specifically
+    /// because a live report claimed the drop "self-recovered once but
+    /// happened twice" -- code inspection shows no one-shot state that would
+    /// make recovery work only the first time (every query independently
+    /// checks `is_closed()` and reconnects), but this asserts it directly
+    /// rather than relying on that reasoning alone.
     #[tokio::test]
     async fn postgres_store_reconnects_after_connection_closed() {
         let Ok(url) = std::env::var("TEST_POSTGRES_URL") else {
@@ -489,34 +496,36 @@ mod tests {
             "sanity check before killing the connection"
         );
 
-        let backend_pid: i32 = store
-            .client
-            .read()
-            .await
-            .query_one("SELECT pg_backend_pid()", &[])
-            .await
-            .unwrap()
-            .get(0);
+        async fn kill_current_backend(store: &super::PostgresStore, url: &str) {
+            let backend_pid: i32 = store
+                .client
+                .read()
+                .await
+                .query_one("SELECT pg_backend_pid()", &[])
+                .await
+                .unwrap()
+                .get(0);
+            let (admin, admin_connection) = tokio_postgres::connect(url, tokio_postgres::NoTls)
+                .await
+                .unwrap();
+            tokio::spawn(async move {
+                let _ = admin_connection.await;
+            });
+            admin
+                .execute("SELECT pg_terminate_backend($1)", &[&backend_pid])
+                .await
+                .unwrap();
+            // Give the connection-driving background task a moment to
+            // observe the closed socket before the next query is issued.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
 
-        let (admin, admin_connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-            .await
-            .unwrap();
-        tokio::spawn(async move {
-            let _ = admin_connection.await;
-        });
-        admin
-            .execute("SELECT pg_terminate_backend($1)", &[&backend_pid])
-            .await
-            .unwrap();
-
-        // Give the connection-driving background task a moment to observe
-        // the closed socket before issuing the next query.
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
+        // First kill/recover cycle.
+        kill_current_backend(&store, &url).await;
         let runs = store
             .list_runs_by_target(&target, 10)
             .await
-            .expect("query should transparently reconnect and succeed");
+            .expect("query should transparently reconnect and succeed (1st drop)");
         assert!(runs.is_empty());
 
         let run_id = format!("reconnect-run-{}", uuid::Uuid::new_v4());
@@ -538,10 +547,41 @@ mod tests {
                 finished_at: "now",
             })
             .await
-            .expect("record_run should also work after reconnecting");
+            .expect("record_run should also work after reconnecting (1st drop)");
         let runs_after = store.list_runs_by_target(&target, 10).await.unwrap();
         assert_eq!(runs_after.len(), 1);
         assert_eq!(runs_after[0].run_id, run_id);
+
+        // Second kill/recover cycle, against the connection the first
+        // reconnect established -- this is the part a one-shot "reconnect
+        // once, then give up" bug would fail.
+        kill_current_backend(&store, &url).await;
+        let runs_second = store
+            .list_runs_by_target(&target, 10)
+            .await
+            .expect("query should transparently reconnect and succeed (2nd drop)");
+        assert_eq!(runs_second.len(), 1);
+
+        let run_id_2 = format!("reconnect-run-{}", uuid::Uuid::new_v4());
+        store
+            .record_run(&super::StoredRun {
+                run_id: &run_id_2,
+                plugin: "test",
+                container: "test:latest",
+                target: Some(&target),
+                status: "success",
+                exit_code: Some(0),
+                artifact_dir: &run_dir,
+                stdout_path: &run_dir.join("stdout"),
+                stderr_path: &run_dir.join("stderr"),
+                input_json: "{}",
+                started_at: "now",
+                finished_at: "now",
+            })
+            .await
+            .expect("record_run should also work after reconnecting (2nd drop)");
+        let runs_final = store.list_runs_by_target(&target, 10).await.unwrap();
+        assert_eq!(runs_final.len(), 2);
 
         let _ = std::fs::remove_dir_all(root);
     }
