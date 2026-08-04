@@ -31,6 +31,12 @@ description = "Request more detailed output."
 required = false
 flag = "--verbose"
 
+[[assets]]
+source = "wordlist.txt"
+dest = "/wordlist.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist bundled into the image by the Dockerfile."
+
 [docker]
 network = "none"
 memory = "512m"
@@ -51,6 +57,44 @@ can cause unexpectedly broad or high-volume requests. If a larger SecLists
 wordlist is required, add it explicitly to a reviewed plugin package and keep
 the manifest's depth, concurrency, and rate limits appropriate for the
 authorized target.
+
+### Bundled build assets (`[[assets]]`)
+
+A plugin whose tool needs a file bundled into the image at a known path — a
+wordlist, a signature database, anything a `Dockerfile` `COPY`s in — should
+declare it explicitly rather than relying only on the `Dockerfile` itself
+having the right `COPY` line:
+
+```toml
+[[assets]]
+source = "wordlist.txt"
+dest = "/wordlist.txt"
+min_size_bytes = 50
+description = "Small reviewed content-discovery wordlist bundled into the image."
+```
+
+`source` is a path relative to the plugin package directory; `dest` is the
+absolute path the file must exist at inside the image; `min_size_bytes`
+(default `1`, i.e. merely non-empty) guards against a truncated or
+accidentally-emptied file. `slickchook-plugin install` enforces both ends of
+this automatically:
+
+- Before building a package with a `Dockerfile`, it verifies every declared
+  `source` is actually present (and large enough) in the staged package — a
+  package copied or checked out without a required file (exactly what
+  happened to `feroxbuster`'s bundled wordlist in a past deployment) now
+  fails installation immediately with a clear error, instead of silently
+  building and installing a broken image.
+- After the image is built (or, for a plugin using a pulled upstream image
+  with no `Dockerfile`, once that image is confirmed present), it verifies
+  every declared `dest` actually exists at that size *inside the image
+  itself* — this also catches a `Dockerfile` whose `COPY` drifted out of
+  sync with what the manifest expects, not just a missing source file.
+
+`source` is optional: omit it for a plugin using a pulled upstream image,
+where there is no local build step to check a package-directory file
+against — only the built/pulled image's own `dest` content is verified in
+that case. `dest` is always required and always checked.
 
 ## Installing and updating independent plugins
 
@@ -228,7 +272,7 @@ Each run creates:
 - `artifacts/<run_id>/stdout.txt`
 - `artifacts/<run_id>/stderr.txt`
 - any files the container writes under `/artifacts`
-- a row in `artifacts/plugin_runs.sqlite3`
+- a row in the PostgreSQL `plugin_runs` table
 
 Docker execution is handled by the separate `slickchook-runner` binary. See `RUNNER.md` for Docker group setup. Set `SLICKCHOOK_RUNNER=/path/to/slickchook-runner` if it is not next to the main `slickchook` binary.
 

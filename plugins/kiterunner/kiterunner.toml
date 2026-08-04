@@ -3,6 +3,11 @@ container = "slickchook-plugin/kiterunner:local"
 description = "Discovers API routes using the bounded Kiterunner small route corpus."
 fixed_args = ["scan", "-w", "/opt/kiterunner/routes-small.kite", "-o", "json", "-x", "5", "-j", "10"]
 
+[[assets]]
+dest = "/opt/kiterunner/routes-small.kite"
+min_size_bytes = 1024
+description = "Small Kiterunner API route corpus downloaded at build time (no local source file to check — the Dockerfile fetches it from assetnote.io)."
+
 [[arguments]]
 name = "target"
 description = "One authorized HTTP or HTTPS API target."
