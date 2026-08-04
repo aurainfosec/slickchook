@@ -303,3 +303,22 @@ repository) is used because `caddy` isn't in the target's default repos,
 that is a new supply-chain trust addition equivalent in kind to the
 container-image provenance concerns in SC-003/SC-004 — review it the same
 way before relying on it in production.
+
+### SC-015: Post-run artifact permission fixup runs as an unprivileged, same-UID container
+
+Status: Mitigated by construction  
+Severity: Low
+
+`slickchook-runner` runs one additional short-lived container after every
+plugin run (success, failure, or timeout) to normalize permissions on
+whatever the plugin container wrote into `/artifacts`, since some tools
+restrict permissions on their own output as they write it, leaving those
+files unreadable by the Slickchook service afterward. This fixup container
+is not a privilege escalation: it uses the exact same restrictive policy as
+plugin containers themselves (`--user 65534:65534`, `--network none`,
+`--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`), the
+same UID the plugin container ran as — not root — and its only mounted
+volume is the same run's own `/artifacts` directory. Only a file's owner
+(or root) may relax that file's own permissions, which is why this must
+run as that same UID rather than being done by the runner or main service
+process directly. A failure here is logged and does not fail the run.
