@@ -285,6 +285,22 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if std::env::args().nth(1).as_deref() == Some("--print-assets") {
+        let path = std::env::args()
+            .nth(2)
+            .ok_or_else(|| anyhow::anyhow!("--print-assets requires a manifest path"))?;
+        let manifest = slickchook::plugin_manager::load_manifest(std::path::Path::new(&path))?;
+        for asset in &manifest.assets {
+            println!(
+                "{}\t{}\t{}",
+                asset.source.as_deref().unwrap_or(""),
+                asset.dest,
+                asset.min_size_bytes
+            );
+        }
+        return Ok(());
+    }
+
     tracing_subscriber::fmt::init();
 
     let config = load_config()?;

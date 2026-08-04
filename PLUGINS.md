@@ -31,6 +31,12 @@ description = "Request more detailed output."
 required = false
 flag = "--verbose"
 
+[[assets]]
+source = "wordlist.txt"
+dest = "/wordlist.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist bundled into the image by the Dockerfile."
+
 [docker]
 network = "none"
 memory = "512m"
@@ -51,6 +57,44 @@ can cause unexpectedly broad or high-volume requests. If a larger SecLists
 wordlist is required, add it explicitly to a reviewed plugin package and keep
 the manifest's depth, concurrency, and rate limits appropriate for the
 authorized target.
+
+### Bundled build assets (`[[assets]]`)
+
+A plugin whose tool needs a file bundled into the image at a known path — a
+wordlist, a signature database, anything a `Dockerfile` `COPY`s in — should
+declare it explicitly rather than relying only on the `Dockerfile` itself
+having the right `COPY` line:
+
+```toml
+[[assets]]
+source = "wordlist.txt"
+dest = "/wordlist.txt"
+min_size_bytes = 50
+description = "Small reviewed content-discovery wordlist bundled into the image."
+```
+
+`source` is a path relative to the plugin package directory; `dest` is the
+absolute path the file must exist at inside the image; `min_size_bytes`
+(default `1`, i.e. merely non-empty) guards against a truncated or
+accidentally-emptied file. `slickchook-plugin install` enforces both ends of
+this automatically:
+
+- Before building a package with a `Dockerfile`, it verifies every declared
+  `source` is actually present (and large enough) in the staged package — a
+  package copied or checked out without a required file (exactly what
+  happened to `feroxbuster`'s bundled wordlist in a past deployment) now
+  fails installation immediately with a clear error, instead of silently
+  building and installing a broken image.
+- After the image is built (or, for a plugin using a pulled upstream image
+  with no `Dockerfile`, once that image is confirmed present), it verifies
+  every declared `dest` actually exists at that size *inside the image
+  itself* — this also catches a `Dockerfile` whose `COPY` drifted out of
+  sync with what the manifest expects, not just a missing source file.
+
+`source` is optional: omit it for a plugin using a pulled upstream image,
+where there is no local build step to check a package-directory file
+against — only the built/pulled image's own `dest` content is verified in
+that case. `dest` is always required and always checked.
 
 ## Installing and updating independent plugins
 
@@ -228,11 +272,35 @@ Each run creates:
 - `artifacts/<run_id>/stdout.txt`
 - `artifacts/<run_id>/stderr.txt`
 - any files the container writes under `/artifacts`
-- a row in `artifacts/plugin_runs.sqlite3`
+- a row in the PostgreSQL `plugin_runs` table
 
 Docker execution is handled by the separate `slickchook-runner` binary. See `RUNNER.md` for Docker group setup. Set `SLICKCHOOK_RUNNER=/path/to/slickchook-runner` if it is not next to the main `slickchook` binary.
 
 Docker runs with restrictive defaults: no network unless a manifest explicitly requests `bridge`, read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, a non-root user, process limits, memory limits, CPU limits, no stdin, and only the run artifact directory mounted writable at `/artifacts`. Manifests can declare narrowly scoped tmpfs mounts, such as `/tmp`, when a container needs temporary space.
+
+**A read-only root filesystem is the single most common cause of a plugin
+failing on its first real run.** Many CLI tools write a config file, cache,
+or local database under the invoking user's home directory (commonly
+`$HOME/.config/<tool>` or `$HOME/.cache/<tool>`) even when never asked to.
+Containers run as UID/GID `65534:65534` with no matching `/etc/passwd`
+entry, so `$HOME` typically resolves to `/`, and the write lands at
+`/.config/<tool>` or `/.cache/<tool>` on the read-only root — failing with
+a confusing, tool-specific error (a permission error, or in `amass`'s case
+a misleading "out of memory" panic) rather than anything that obviously
+points at the filesystem. Before deploying a new plugin, check whether its
+image writes anywhere outside `/artifacts` on a normal run (a quick
+`docker run --read-only <image> ...` smoke test reproduces this
+immediately), and add the specific path as a tmpfs mount if so:
+
+```toml
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.config:rw,noexec,nosuid,nodev,size=8m"]
+```
+
+`subfinder`, `nuclei`, and `amass` all needed a `/.config` mount for
+exactly this reason; `kiterunner` needed `/.cache` instead. Size the mount
+only as large as the tool's actual config/cache footprint requires — these
+are tmpfs (RAM-backed), not disk, and count against the container's own
+resource limits.
 
 Plugin containers always run as UID 65534. Some tools restrict permissions on their own output files as they write them (for example, `testssl.sh` writing its JSON/HTML reports); left alone, that leaves the file unreadable by the Slickchook service's own user afterward, so `read_artifact` and any other host-side read would fail even though the file exists. The runner handles this automatically: after every plugin container exits (success, failure, or a timeout kill), it runs one more short-lived container as the same UID to make everything under `/artifacts` readable again, since only a file's owner (or root) may relax its own permissions. Plugin authors do not need to work around this themselves.
 
