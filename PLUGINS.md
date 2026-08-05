@@ -167,6 +167,17 @@ live package and rolls back the package if service validation fails. To smoke
 test manually before installation, run the same `docker build` and `docker run`
 commands separately; the installer will rebuild from its staged, reviewed copy.
 
+A `docker build` whose `Dockerfile` and build context are unchanged correctly
+reuses Docker's cached layers — the resulting image is identical either way,
+so this is expected, not a sign the install skipped anything. Pass
+`--force-rebuild` (before or after the plugin directory) to bypass that cache
+explicitly, for example when specifically diagnosing or ruling out a
+suspected stale image:
+
+```bash
+sudo slickchook-plugin install --force-rebuild /path/to/my-plugin
+```
+
 After either workflow, verify that the live manifest and image agree:
 
 ```bash
