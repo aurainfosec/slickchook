@@ -180,3 +180,14 @@
   hot-reload) — `sudo slickchook-plugin install
   plugins/sublert` is still required to pick it up, exactly as for an
   image change.
+- Improved `SKILL.md` (doc-only, no code changes): documented that
+  `read_artifact` returns an image artifact as a real MCP image content
+  block alongside its metadata (not just base64 text) and that
+  `list_run_artifacts` now lists nested files recursively; added
+  guidance to skip `rawping` as a routine step (its ICMP echo is often
+  filtered by the same infrastructure that would flag it, and rarely
+  adds information `naabu`/`httpx` haven't already provided) rather than
+  running it reflexively; noted `dnsx`'s `all` option covers every
+  record type in one call instead of one call per type; and added
+  parallelizing `read_artifact` calls during artifact collection to the
+  existing efficiency guidance.
