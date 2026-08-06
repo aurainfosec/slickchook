@@ -368,7 +368,7 @@ Current capability policy:
 Containers run with `--cap-drop ALL`, `--security-opt no-new-privileges`, a
 read-only root filesystem, a non-root user, resource limits, no stdin, and only
 the individual run artifact directory mounted writable at `/artifacts`.
-# Static-analysis input mounts
+## Static-analysis input mounts
 
 Every plugin run receives a per-run staging directory at `artifacts/<run-id>/input`.
 It is mounted inside the container as `/input`.

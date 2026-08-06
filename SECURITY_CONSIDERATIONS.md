@@ -4,7 +4,7 @@ This is a living record of Slickchook security assumptions, controls, and open
 concerns. Update it whenever a security-relevant behavior is introduced,
 discovered, fixed, or deliberately accepted.
 
-Last reviewed: 2026-07-15
+Last reviewed: 2026-08-06
 
 ## Trust boundaries
 
@@ -28,7 +28,9 @@ Last reviewed: 2026-07-15
   scalars, and user-supplied strings starting with `-`, containing NUL, or
   being empty are rejected.
 - Container image names, Docker networks, tmpfs declarations, and added
-  capabilities are validated. Only `NET_RAW` can currently be added.
+  capabilities are validated. Only `NET_RAW` can currently be added (used by
+  `naabu` for SYN scans and `nmap`'s raw-packet checks; prefer TCP CONNECT
+  modes when raw-packet scanning isn't required for the engagement).
 - Containers run with all capabilities dropped by default, a non-root user, a
   read-only root filesystem, `no-new-privileges`, and configured CPU, memory,
   PID, and time limits.
@@ -38,6 +40,19 @@ Last reviewed: 2026-07-15
   directories, normalizes installed ownership and permissions, serializes
   changes with a lock, stops the service while switching packages, installs by
   directory rename, and rolls back when service validation fails.
+- Database configuration is never hard-coded in manifests or source: the
+  installer provisions a dedicated non-superuser PostgreSQL role and
+  database, and writes non-secret connection settings to
+  `/etc/slickchook/postgres.env`, owned by `root:slickchook` with mode
+  `0640`. Passwords, if later required for remote connections, must be
+  supplied out-of-band through a secret manager or protected deployment
+  mechanism.
+- Analyzer plugins (e.g. `osvscanner`, `screensanitize`) receive `/input` as a
+  read-only mount by default; only a purpose-built fetcher may set
+  `docker.input_read_only = false`, and that mount is still constrained to
+  the current run's own artifact directory. This separates networked
+  collection from offline analysis and prevents an analyzer from modifying
+  collected content or reaching arbitrary host paths.
 
 ## Open concerns
 
@@ -122,7 +137,7 @@ Status: Open
 Severity: High when a plugin accepts credentials, tokens, or other secrets
 
 The MCP server records the complete plugin input JSON in the `plugin_runs`
-SQLite table. Plugins such as Medusa accept a password, so even a test run
+PostgreSQL table. Plugins such as Medusa accept a password, so even a test run
 persists that value in plaintext. Artifact output may independently disclose
 the same inputs or other sensitive target information.
 
@@ -149,56 +164,15 @@ non-regular files and writes through an explicit truncating file handle.
 The updated Slickchook server binary must be deployed before this mitigation is
 active on a running instance.
 
-## Reporting and maintenance
+### SC-007: Offline analyzer database supply chain
 
-For every new concern, assign an `SC-NNN` identifier, record its status and
-severity, state the affected trust boundary, and distinguish current controls
-from proposed work. When fixed, retain the entry, mark it resolved with the
-date, and link to the relevant changelog entry or commit.
-## Static-analysis staging mounts
+Status: Mitigated with maintenance requirements  
+Severity: Medium
 
-Analyzer containers receive `/input` as a read-only mount by default. Only a
-purpose-built fetcher may set `docker.input_read_only = false`, and that mount is
-still constrained to the current run's artifact directory. This separates networked
-collection from offline analysis and prevents analyzers from modifying collected
-content or accessing arbitrary host paths.
-
-Screenshot prompt injection is an accepted-content risk. Web pages may render
-instructions aimed at an AI viewer, including fake system messages or hidden
-text. Vision/OCR processing must be isolated from tool execution, return
-structured observations, and require independent confirmation before action.
-
-PostgreSQL is the only supported run-store backend; Slickchook requires
-`DATABASE_URL` to start and has no embedded fallback.
-
-Database configuration must not be hard-coded in manifests or source. The
-installer provisions a dedicated non-superuser role and database, and writes
-non-secret connection settings to `/etc/slickchook/postgres.env`, owned by
-`root:slickchook` with mode `0640`. Passwords, if later required for remote
-connections, must be supplied out-of-band through a secret manager or protected
-deployment mechanism.
-
-### SC-009: Backup archives in repository history
-
-Status: Mitigated in working tree; historical exposure requires review  
-Severity: High if archives contain credentials or sensitive artifacts
-
-Backup archives were previously tracked by Git. They are now ignored and
-removed from the current index, but may remain in existing commits or remote
-clones. Review archive contents, rotate any exposed credentials, and rewrite
-remote history when necessary. Do not add runtime databases, artifacts, or
-backups to source control.
-
-The `screensanitize` plugin strips metadata through re-encoding,
-re-encodes images, performs multi-scale OCR, detects hidden/low-contrast text,
-and flags encoded forms such as Base64, Morse, Braille, QR codes, and suspicious
-Unicode controls. Sanitizer output remains untrusted structured data and has no
-tool-calling authority.
-
-Naabu may use the narrowly scoped `NET_RAW` capability for SYN scans when the
-updated manifest is installed. This increases packet-level network access; use
-CONNECT mode when raw-packet scanning is unnecessary and retain existing rate,
-process, memory, and timeout limits.
+OSV-Scanner bundles an OSV database into its image so runtime analysis does not
+require network access. The scanner and database snapshot must be updated and
+reviewed together. Rebuild with `--no-cache`, record the source revision and
+image digest, and keep analyzer networking disabled.
 
 ### SC-008: Sensitive report artifacts
 
@@ -212,33 +186,34 @@ reporting workflow. The accepted risk does not authorize broad permissions:
 retain root/service-account ownership, restrict directory traversal, protect
 backups, and define retention/deletion procedures appropriate to the reports.
 
-Kiterunner route discovery is active and can generate substantial request
-volume. The default plugin uses the small corpus and low concurrency; any large
-corpus must be separately reviewed and rate-limited before deployment.
+### SC-009: Backup archives in repository history
 
-### SC-007: Offline analyzer database supply chain
+Status: Mitigated in working tree; historical exposure requires review  
+Severity: High if archives contain credentials or sensitive artifacts
 
-Status: Mitigated with maintenance requirements  
-Severity: Medium
+Backup archives were previously tracked by Git. They are now ignored and
+removed from the current index, but may remain in existing commits or remote
+clones. Review archive contents, rotate any exposed credentials, and rewrite
+remote history when necessary. Do not add runtime databases, artifacts, or
+backups to source control.
 
-OSV-Scanner bundles an OSV database into its image so runtime analysis does not
-require network access. The scanner and database snapshot must be updated and
-reviewed together. Rebuild with `--no-cache`, record the source revision and
-image digest, and keep analyzer networking disabled.
 ### SC-010: PostgreSQL adapter is the sole backend
 
-`PostgresStore` is the only run-store implementation. It uses parameterized queries and
-canonical artifact-root containment checks equivalent to the SQLite adapter it replaced.
-Credentials are supplied only via `DATABASE_URL` (never hard-coded); see the database
-configuration guidance above.
+Status: Mitigated  
+Severity: Low
+
+`PostgresStore` is the only run-store implementation. It uses parameterized
+queries and canonical artifact-root containment checks equivalent to the
+SQLite adapter it replaced. Credentials are supplied only via `DATABASE_URL`
+(never hard-coded) — see the database configuration control above.
 
 ### SC-011: WebSocket probe scope
 
-Status: Controlled
+Status: Controlled  
 Severity: Medium
 
-The websocat plugin is limited to a short handshake/connectivity probe and does
-not send application messages or credentials. Only explicitly authorized
+The `websocat` plugin is limited to a short handshake/connectivity probe and
+does not send application messages or credentials. Only explicitly authorized
 `ws://` or `wss://` endpoints should be supplied. Treat handshake output as
 untrusted artifact data and do not infer authorization or message-level safety
 from a successful connection alone.
@@ -384,3 +359,30 @@ Recommended hardening:
   and do not remove or bypass the Caddy front-end's hostname-scoped site
   block — both are load-bearing for the mitigation described above.
 - Re-review this entry once the migration lands and mark it resolved.
+
+### SC-017: Screenshot/OCR content is an accepted prompt-injection vector
+
+Status: Mitigated, isolation must be preserved  
+Severity: High if screenshot content ever reaches tool-calling context directly
+
+Web pages rendered by `gowitness` may contain instructions aimed at an AI
+viewer — fake system messages, hidden or low-contrast text, encoded payloads
+— intended to manipulate whatever reads the screenshot next. `screensanitize`
+is the required mitigation: it strips metadata, re-encodes the image,
+performs multi-scale OCR, detects hidden/low-contrast text, and flags encoded
+forms (Base64, Morse, Braille, QR codes, suspicious Unicode control
+characters). Its output remains untrusted structured data with no
+tool-calling authority of its own — vision/OCR processing must stay isolated
+from tool execution, return structured observations only, and require
+independent confirmation before any action is taken on what it finds. Never
+route raw `gowitness` screenshots directly into a context that can invoke
+tools; always go through `screensanitize` first.
+
+## Reporting and maintenance
+
+For every new concern, assign an `SC-NNN` identifier, record its status and
+severity, state the affected trust boundary, and distinguish current controls
+from proposed work. When fixed, retain the entry, mark it resolved with the
+date, and link to the relevant changelog entry or commit. Keep `### SC-NNN`
+entries under "Open concerns" in ascending numeric order — new entries always
+get the next unused number, appended at the end of that ordering.

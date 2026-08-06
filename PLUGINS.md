@@ -96,6 +96,50 @@ where there is no local build step to check a package-directory file
 against — only the built/pulled image's own `dest` content is verified in
 that case. `dest` is always required and always checked.
 
+## Custom (first-party) plugins
+
+Most bundled plugins are thin manifests around an existing, independently
+published security tool (`nmap`, `testssl`, `amass`, ProjectDiscovery's
+tools, and so on) — the manifest just declares how to invoke a real
+upstream image. A few are not: they run bespoke code written for this
+repository, with no equivalent standalone published tool behind them.
+Know which is which before relying on one for engagement coverage:
+
+- **`screensanitize`** — a small Python script (`plugins/screensanitize/sanitize.py`)
+  that re-encodes staged screenshots, runs OCR (`tesseract`) over them, and
+  flags hidden/low-contrast text and encoded content (Base64, Morse,
+  Braille, QR codes, suspicious Unicode). Written specifically to make
+  `gowitness` screenshots safe to hand to an AI reader — see
+  `SECURITY_CONSIDERATIONS.md` SC-017. There is no third-party tool
+  equivalent; its detection coverage is only as good as this script.
+- **`graphqlcheck`** — a small Python script (`plugins/graphqlcheck/check.py`)
+  that sends a single bounded GraphQL introspection query to one URL and
+  reports whether introspection is enabled. It is not a full GraphQL
+  security scanner (no batch queries, no known-vulnerability checks) — it
+  answers exactly one question.
+- **`sublert`** — despite the name, this is **not** the real upstream
+  [`sublert`](https://github.com/yassineaboukir/sublert) project (which
+  continuously monitors and maintains its own database). It's a small
+  bespoke script (`plugins/sublert/collect_ct.py`) that makes one query to
+  the public [crt.sh](https://crt.sh/) certificate-transparency search and
+  prints the distinct subdomains found for that run — a single-shot
+  lookup, not ongoing monitoring. Don't assume upstream `sublert`'s feature
+  set or behavior applies here.
+- **`webfetch`** — a thin, purpose-built restriction around plain `wget`
+  (fetch exactly one authorized URL into the run's input staging
+  directory, nothing else) rather than a general-purpose fetch tool. See
+  `ROADMAP.md`'s static-web-content-analysis section for the fetch→analyze
+  pipeline this exists to support.
+- **`rawping`** — a bounded three-packet ICMP echo using plain `alpine`'s
+  built-in `ping`, not a dedicated network-tools image. It exists as a
+  minimal, focused verification of the runner's `NET_RAW` capability
+  policy, not as a general reachability/latency tool.
+
+If a plugin isn't in the list above, treat its manifest `description` and
+underlying `container` image as accurately reflecting a real, independently
+maintained tool — check that upstream project's own documentation for its
+actual capabilities and limitations.
+
 ## Installing and updating independent plugins
 
 The Ubuntu core installer places `slickchook-plugin` in `/usr/local/sbin`.
