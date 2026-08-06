@@ -30,7 +30,12 @@ allow-listed capability (`[]` or `NET_RAW`). The runner re-validates this
 manifest independently before touching Docker and enforces a read-only root
 filesystem, non-root user, `--cap-drop ALL`, and `no-new-privileges` on
 every container. Plugin packages are installed and versioned independently
-of the core server — see [`PLUGINS.md`](PLUGINS.md).
+of the core server — see [`PLUGINS.md`](PLUGINS.md). Most bundled plugins
+wrap an existing, independently published tool; a few instead run bespoke
+code written for this repository (screenshot OCR/sanitization, a GraphQL
+introspection check, and others) — see
+[Custom (first-party) plugins](PLUGINS.md#custom-first-party-plugins) for
+which is which before relying on one for engagement coverage.
 
 **Per-run isolation and artifacts.** Every `run_plugin` call gets a UUID,
 its own `artifacts/<run_id>/` directory (the only writable mount inside the
@@ -99,6 +104,11 @@ See [`RUNNER.md`](RUNNER.md) for the full deployment model, the
 installer-script alternative, enforcement details, and how connecting
 clients should trust the Caddy front-end's certificate. For plugin
 installation and authoring, see [`PLUGINS.md`](PLUGINS.md).
+
+For the paired AI-agent side of that deployment model — driving a
+connected Slickchook instance efficiently, with authorized-scope
+discipline, breadth *and* depth, and a final packaged artifact
+collection — see [`SKILL.md`](SKILL.md).
 
 For local development:
 
