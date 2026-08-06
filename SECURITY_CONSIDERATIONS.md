@@ -368,15 +368,40 @@ Severity: High if screenshot content ever reaches tool-calling context directly
 Web pages rendered by `gowitness` may contain instructions aimed at an AI
 viewer — fake system messages, hidden or low-contrast text, encoded payloads
 — intended to manipulate whatever reads the screenshot next. `screensanitize`
-is the required mitigation: it strips metadata, re-encodes the image,
-performs multi-scale OCR, detects hidden/low-contrast text, and flags encoded
-forms (Base64, Morse, Braille, QR codes, suspicious Unicode control
-characters). Its output remains untrusted structured data with no
-tool-calling authority of its own — vision/OCR processing must stay isolated
-from tool execution, return structured observations only, and require
-independent confirmation before any action is taken on what it finds. Never
-route raw `gowitness` screenshots directly into a context that can invoke
-tools; always go through `screensanitize` first.
+is the required mitigation: it strips metadata, re-encodes the image, runs
+OCR, detects hidden/low-contrast text, and flags encoded forms (Base64,
+Morse, Braille, QR codes, suspicious Unicode control characters). Its output
+remains untrusted structured data with no tool-calling authority of its
+own — vision/OCR processing must stay isolated from tool execution, return
+structured observations only, and require independent confirmation before
+any action is taken on what it finds. Never route raw `gowitness`
+screenshots directly into a context that can invoke tools; always go
+through `screensanitize` first.
+
+Until 2026-08-06, this mitigation never actually ran against a real
+screenshot: `gowitness` wrote its output to `/artifacts/screenshots`, while
+`screensanitize`'s `input_run_id` chaining only ever exposes the prior
+run's own `/input` staging directory — the convention `webfetch` uses to
+hand off fetched content, which `gowitness` was never wired into. A chained
+`screensanitize` run silently produced `"results": []` — zero images
+found, not an error — with nothing to indicate anything was wrong; verified
+live against a real `gowitness` capture before the fix. Fixed by having
+`gowitness` write its screenshot into `/input` instead (mirroring
+`webfetch`'s pattern), and by fixing `screensanitize`'s own re-encoded-image
+write, which was separately failing (it tried to write back into the
+correctly-read-only `/input` mount) and silently skipping the OCR/
+flag-detection code that ran after it in the same `try` block. OCR is
+currently a single pass at the image's native resolution, not multi-scale;
+treat detection of small or low-contrast injected text as best-effort until
+that's revisited.
+
+Separately, until this same fix, an MCP client had no real way to retrieve
+a screenshot's actual bytes at all: `list_run_artifacts` never recursed
+into subdirectories (so a screenshot nested under `screenshots/` was
+invisible to it), and `read_artifact` returned image bytes as a base64
+string embedded in a JSON text block rather than a proper MCP image
+content type. Both are now fixed: artifact listing recurses, and
+`read_artifact` returns a real `image` content block for image mime types.
 
 ## Reporting and maintenance
 

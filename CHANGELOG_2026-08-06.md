@@ -180,3 +180,46 @@
   hot-reload) — `sudo slickchook-plugin install
   plugins/sublert` is still required to pick it up, exactly as for an
   image change.
+- Fixed the `gowitness` → `screensanitize` screenshot pipeline, which
+  had never actually worked, discovered while investigating a report
+  that screenshots "are not retrievable." Verified live, three
+  compounding bugs:
+  - `gowitness` wrote its screenshot to `/artifacts/screenshots`, but
+    `screensanitize`'s `input_run_id` chaining only ever exposes the
+    prior run's own `/input` staging directory — the convention
+    `webfetch` uses to hand off fetched content, which `gowitness` was
+    never wired into. A real chained `screensanitize` call against a
+    real `gowitness` screenshot produced `"results": []` — zero images
+    found, no error, no indication anything was wrong. Fixed by
+    changing `gowitness.toml` to write into `/input` instead (with
+    `docker.input_read_only = false`, mirroring `webfetch` exactly).
+  - `screensanitize`'s own re-encoded/sanitized image write
+    (`sanitize.py`) was separately, silently failing: it tried to save
+    the sanitized JPEG back into `path + ".sanitized.jpg"` — inside
+    `/input`, which is correctly read-only for an analyzer plugin. The
+    failure was swallowed by a broad `except Exception`, which also
+    skipped the OCR and prompt-injection flag detection that ran
+    *after* it in the same `try` block — meaning even a properly-fed
+    screenshot would have produced no OCR text and no flags at all, only
+    a per-item `"error"` string easy to miss. Fixed by writing the
+    sanitized image into the writable output directory (alongside
+    `sanitized.json`) instead, and recording its filename as
+    `sanitized_file` in the JSON result.
+  - Separately, `list_run_artifacts` never recursed into subdirectories
+    (`fs::read_dir` only lists a directory's immediate entries), so a
+    screenshot nested under `screenshots/` was invisible to it even
+    before any chaining was involved. Fixed `list_artifacts` to walk
+    subdirectories (still skipping symlinks, matching prior behavior).
+  - `read_artifact` returned image bytes as a base64 string embedded in
+    a JSON text content block rather than a real MCP `image` content
+    type — technically present, but not usable by a client expecting an
+    actual image. `rmcp` 0.5.0 already supports `Content::image(data,
+    mime_type)`; `read_artifact` now returns a `CallToolResult` with a
+    text block (metadata) plus a separate image block for image
+    artifacts, instead of a single opaque `String`.
+  Verified for real: ran `gowitness` against `example.com`, confirmed
+  its screenshot was invisible via `list_run_artifacts` and produced
+  `"results": []` when chained into `screensanitize` before the fix.
+  `cargo test --lib` passes (10/10, including a new test covering
+  `list_artifacts`'s recursion). Documented in `SECURITY_CONSIDERATIONS.md`'s
+  SC-017, whose stated mitigation this directly restores.

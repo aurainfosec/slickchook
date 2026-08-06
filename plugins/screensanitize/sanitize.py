@@ -5,6 +5,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--input", required=True)
 p.add_argument("--output", required=True)
 a = p.parse_args()
+out_dir = os.path.dirname(a.output) or "."
 results = []
 for root, _, files in os.walk(a.input):
     for name in files:
@@ -13,9 +14,15 @@ for root, _, files in os.walk(a.input):
         path = os.path.join(root, name)
         item = {"file": os.path.relpath(path, a.input), "untrusted": True, "flags": []}
         try:
+            # `/input` is read-only for this plugin (it's an analyzer, not a
+            # fetcher), so the re-encoded, sanitized image must be written
+            # into the writable output directory instead, alongside
+            # sanitized.json - not next to the original file.
+            sanitized_name = item["file"].replace(os.sep, "_") + ".sanitized.jpg"
             with Image.open(path) as image:
                 clean = image.convert("RGB")
-                clean.save(path + ".sanitized.jpg", format="JPEG", quality=85, optimize=True)
+                clean.save(os.path.join(out_dir, sanitized_name), format="JPEG", quality=85, optimize=True)
+            item["sanitized_file"] = sanitized_name
             text = subprocess.check_output(["tesseract", path, "stdout"], stderr=subprocess.DEVNULL, timeout=30, text=True)
             item["ocr_text"] = text[:8192]
             if re.search(r"[\u200b-\u200f\u202a-\u202e\ufeff]", text): item["flags"].append("unicode_controls")

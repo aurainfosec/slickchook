@@ -853,14 +853,26 @@ fn write_artifact(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Recurses into subdirectories (e.g. `gowitness`'s `screenshots/`) so a file
+/// nested under the run's artifact directory is actually discoverable via
+/// `list_run_artifacts`, not just files directly in its top level. Mirrors
+/// the existing single-level behavior for symlinks: `DirEntry::file_type`
+/// never follows a symlink, so a symlinked file or directory is silently
+/// skipped rather than read or descended into.
 fn list_artifacts(artifact_dir: &Path) -> Result<Vec<String>> {
     let mut artifacts = Vec::new();
-    for entry in fs::read_dir(artifact_dir)
-        .with_context(|| format!("failed to read {}", artifact_dir.display()))?
-    {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            artifacts.push(entry.path().to_string_lossy().into_owned());
+    let mut pending = vec![artifact_dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in
+            fs::read_dir(&dir).with_context(|| format!("failed to read {}", dir.display()))?
+        {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            if file_type.is_file() {
+                artifacts.push(entry.path().to_string_lossy().into_owned());
+            } else if file_type.is_dir() {
+                pending.push(entry.path());
+            }
         }
     }
     artifacts.sort();
@@ -1048,6 +1060,25 @@ mod tests {
         policy.cap_add = vec!["NET_ADMIN".to_string()];
         let error = validate_docker_policy(&policy).unwrap_err();
         assert!(error.to_string().contains("NET_RAW"));
+    }
+
+    #[test]
+    fn lists_artifacts_recursively() {
+        let dir = std::env::temp_dir().join(format!("slickchook-la-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("screenshots")).unwrap();
+        std::fs::write(dir.join("stdout.txt"), b"out").unwrap();
+        std::fs::write(dir.join("screenshots/shot.png"), b"fake-png-bytes").unwrap();
+
+        let artifacts = list_artifacts(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(artifacts.iter().any(|path| path.ends_with("stdout.txt")));
+        assert!(
+            artifacts
+                .iter()
+                .any(|path| path.replace('\\', "/").ends_with("screenshots/shot.png")),
+            "expected a nested file to be discoverable, got: {artifacts:?}"
+        );
     }
 
     /// Exercises `list_runs_by_target`/`list_run_artifacts`/`read_artifact`
