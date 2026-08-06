@@ -19,10 +19,48 @@ These instructions assume:
 - the repository is the current directory; and
 - Rust is installed on the build machine.
 
-## Automated installation
+## Recommended: install from the `.deb` package
 
-For a standard Ubuntu Server, build the release binaries and run the included
-installer from the repository root:
+For a standard Ubuntu Server, build a native package and install it with
+`apt` — this is the recommended way to deploy Slickchook, since `apt`
+resolves and installs Slickchook's own package dependencies
+(`docker.io`/`docker-ce`, `postgresql`, `postgresql-client`, `adduser`,
+`acl`) for you, on top of everything the installer script below already
+does:
+
+```bash
+cargo build --locked --release --bins
+./scripts/build-deb.sh
+sudo apt install ./dist/slickchook_*_$(dpkg --print-architecture).deb
+```
+
+(Use `apt install ./file.deb`, not `dpkg -i`, precisely so dependency
+resolution happens — `dpkg -i` alone will fail or leave dependencies
+unresolved.)
+
+The package's `postinst` performs the same setup steps as
+`install-ubuntu.sh` below (service account, PostgreSQL role/database and
+schema, the systemd unit, and the Caddy TLS front-end) and is equally
+idempotent: running `apt install` again over an existing installation (a
+newer `.deb`) updates it in place — same env-var override mechanism for
+the Caddy hostname/port/cert lifetime as described in that section below,
+since `sudo` resets most environment variables by default:
+
+```bash
+sudo --preserve-env=CADDY_HOSTNAME,CADDY_LISTEN_PORT,CADDY_CERT_DAYS \
+  CADDY_HOSTNAME=my-vm CADDY_LISTEN_PORT=8443 CADDY_CERT_DAYS=730 \
+  apt install ./dist/slickchook_*_$(dpkg --print-architecture).deb
+```
+
+Plugin packages have their own installation lifecycle and are not copied or
+updated by either installation method. See `PLUGINS.md`.
+
+## Alternative: `scripts/install-ubuntu.sh`
+
+Where building a redistributable `.deb` isn't wanted (no `dpkg-deb`
+available, or a one-shot deploy without producing a package artifact),
+run the included installer script directly from the repository root
+instead:
 
 ```bash
 cargo build --locked --release --bins
@@ -45,8 +83,13 @@ The same command is used for new installations and updates. On an update it:
   `/var/backups/slickchook` before replacing them; and
 - refuses to proceed if an unmanaged process is listening on port 8080.
 
-Plugin packages have their own installation lifecycle and are not copied or
-updated by this core installer. See `PLUGINS.md`.
+It installs `acl`, `postgresql`, `postgresql-client`, and Caddy itself, the
+same as the `.deb`'s package dependencies do — but unlike the `.deb`, it
+cannot pull in Docker automatically (there's no single correct
+`docker.io`/`docker-ce` choice to default to via a plain `apt-get install`
+the way the package's `Depends:` line expresses it); Docker Engine must
+already be installed and running before you run this script (see step 1
+below).
 
 ## 1. Check Docker and install deployment utilities
 
