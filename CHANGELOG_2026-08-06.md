@@ -114,3 +114,35 @@
     something specific to a payload/environment not reproduced here —
     not Slickchook's serialization or the pinned `rmcp`/`axum` SSE
     framing, which are now confirmed correct for arbitrary byte content.
+- Fixed a real, live regression of the original `feroxbuster` wordlist
+  bug — found while re-verifying `feroxbuster` was still deployed
+  correctly, via a real `run_plugin` call that failed with `Could not
+  open /wordlist.txt`, despite the manifest and installed image looking
+  correct. Root cause, confirmed by inspecting the deployed image
+  directly: `/wordlist.txt` genuinely exists at the right size, but with
+  mode `640` owned `root:root` — unreadable by the plugin container's
+  actual runtime UID `65534`, which is neither the owner nor in the
+  `root` group.
+  `slickchook-plugin install`'s own `normalize_package()` chmods every
+  file in a staged package to `0640` before a `Dockerfile` ever builds
+  (a deliberate host-side control, keeping installed packages
+  root-owned and non-group-writable) — a plain `COPY` in a `Dockerfile`
+  preserves that mode into the image unless the `Dockerfile` explicitly
+  overrides it. `feroxbuster`'s `Dockerfile` was the one place this
+  happened: `graphqlcheck`, `screensanitize`, and `sublert` all already
+  `RUN chmod` their own `COPY`'d script immediately afterward (checked
+  every plugin `Dockerfile`'s `COPY` instructions directly to confirm
+  this is the only affected instance, not a wider regression).
+  Fixed the `Dockerfile` (`RUN chmod 0644 /wordlist.txt`), and,
+  separately, closed the actual gap that let this ship unnoticed:
+  `check_assets_in_image`'s existing checks (`docker create`/`docker
+  cp`) read a file via the daemon's own access, which bypasses Unix
+  permission checks entirely — confirming a file exists and is the
+  right size says nothing about whether the plugin's actual runtime UID
+  can read it. Added a real runtime check (`docker run --user
+  65534:65534 --entrypoint sh <image> -c "test -r <dest>"`) alongside
+  the existing ones.
+  Verified for real: the new check correctly fails against the
+  already-built, still-broken image with a clear, actionable message
+  before any Dockerfile fix was applied, confirming it actually catches
+  this class of bug rather than being a theoretical improvement.
