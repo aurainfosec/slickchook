@@ -37,6 +37,11 @@ dest = "/wordlist.txt"
 min_size_bytes = 50
 description = "Small reviewed wordlist bundled into the image by the Dockerfile."
 
+[[secrets]]
+env_var = "EXAMPLE_API_KEY"
+description = "API key for the upstream service this tool queries."
+required = true
+
 [docker]
 network = "none"
 memory = "512m"
@@ -95,6 +100,30 @@ this automatically:
 where there is no local build step to check a package-directory file
 against — only the built/pulled image's own `dest` content is verified in
 that case. `dest` is always required and always checked.
+
+### Declaring required secrets (`[[secrets]]`)
+
+A plugin whose tool needs a persistent credential for an external service —
+an API key for Shodan, for example — should declare it explicitly rather
+than accepting it as a client-supplied `option`:
+
+```toml
+[[secrets]]
+env_var = "SHODAN_API_KEY"
+description = "Shodan API key, used to query host and service data."
+required = true
+```
+
+`env_var` names the environment variable the plugin's container expects to
+find already set; `required` (default `true`) controls whether a missing
+value fails the run immediately or is simply omitted. The actual value is
+never part of the manifest, never supplied per call by an MCP client, and
+never ends up in `plugin_runs` history or any log line — an administrator
+configures it once, server-wide, in `/etc/slickchook/plugin-secrets.env`.
+See RUNNER.md's "Configuring plugin API keys and secrets" for the full
+deployment-side mechanism, and SECURITY_CONSIDERATIONS.md's SC-018 for the
+residual trust boundary: once inside the container, the value is exposed to
+that container exactly as fully as the plugin's own code.
 
 ## Custom (first-party) plugins
 

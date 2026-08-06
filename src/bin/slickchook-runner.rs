@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
-use slickchook::plugin_manager::{build_container_args, load_manifest, validate_docker_policy};
+use slickchook::plugin_manager::{
+    build_container_args, load_manifest, missing_required_secrets, validate_docker_policy,
+};
 use std::{
     env, fs,
     io::{self, Write},
@@ -44,6 +46,15 @@ async fn run() -> Result<()> {
     }
     let manifest = load_manifest(&args.manifest)?;
     validate_docker_policy(&manifest.docker)?;
+
+    let missing_secrets = missing_required_secrets(&manifest);
+    if !missing_secrets.is_empty() {
+        bail!(
+            "plugin `{}` requires the following environment variable(s) to be configured on the slickchook service before it can run: {}",
+            manifest.name,
+            missing_secrets.join(", ")
+        );
+    }
 
     let input: Value =
         serde_json::from_str(&args.input_json).context("failed to parse plugin input JSON")?;
@@ -92,6 +103,18 @@ async fn run() -> Result<()> {
 
     for tmpfs in &manifest.docker.tmpfs {
         command.arg("--tmpfs").arg(tmpfs);
+    }
+
+    // Pass only the bare variable name, never `NAME=value`: Docker then reads
+    // the actual value from this process's own (inherited) environment
+    // rather than from argv, so a configured secret never appears in `ps`
+    // output, this process's own argv, or anywhere it would get logged.
+    // Required secrets are already confirmed present above; an optional one
+    // is forwarded only if actually configured.
+    for secret in &manifest.secrets {
+        if env::var_os(&secret.env_var).is_some() {
+            command.arg("--env").arg(&secret.env_var);
+        }
     }
 
     command
