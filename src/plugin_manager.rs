@@ -53,6 +53,26 @@ pub struct PluginManifest {
     pub docker: DockerPolicy,
     #[serde(default)]
     pub assets: Vec<PluginAsset>,
+    #[serde(default)]
+    pub secrets: Vec<PluginSecret>,
+}
+
+/// Declares an environment variable a plugin's container expects to find
+/// already set — a persistent credential like an API key, configured once
+/// server-wide, never a per-call `option`/`argument` an MCP client can
+/// supply. See `missing_required_secrets` for how a missing value is
+/// enforced, and RUNNER.md for how the value itself is configured and
+/// threaded through to the container.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PluginSecret {
+    pub env_var: String,
+    pub description: String,
+    #[serde(default = "default_secret_required")]
+    pub required: bool,
+}
+
+fn default_secret_required() -> bool {
+    true
 }
 
 /// Declares a file the plugin's container image must bundle at a known path,
@@ -153,6 +173,18 @@ pub struct PluginInfo {
     pub docker: DockerPolicy,
     pub options: Vec<PluginOption>,
     pub arguments: Vec<PluginArgument>,
+    pub secrets: Vec<PluginSecretStatus>,
+}
+
+/// A declared secret's configuration status as reported by `list_plugins` —
+/// never the value itself, only whether the server's own environment
+/// currently has it set.
+#[derive(Clone, Debug, Serialize)]
+pub struct PluginSecretStatus {
+    pub env_var: String,
+    pub description: String,
+    pub required: bool,
+    pub configured: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,6 +267,17 @@ impl PluginManager {
                 docker: plugin.manifest.docker.clone(),
                 options: plugin.manifest.options.clone(),
                 arguments: plugin.manifest.arguments.clone(),
+                secrets: plugin
+                    .manifest
+                    .secrets
+                    .iter()
+                    .map(|secret| PluginSecretStatus {
+                        env_var: secret.env_var.clone(),
+                        description: secret.description.clone(),
+                        required: secret.required,
+                        configured: env::var_os(&secret.env_var).is_some(),
+                    })
+                    .collect(),
             })
             .collect();
         plugins.sort_by(|left, right| left.name.cmp(&right.name));
@@ -252,6 +295,13 @@ impl PluginManager {
         input_run_id: Option<&str>,
     ) -> Result<PluginRunResult> {
         let plugin = self.plugin(plugin_name)?;
+        let missing_secrets = missing_required_secrets(&plugin.manifest);
+        if !missing_secrets.is_empty() {
+            bail!(
+                "plugin `{plugin_name}` requires the following environment variable(s) to be configured on the slickchook service before it can run: {}",
+                missing_secrets.join(", ")
+            );
+        }
         let run_id = Uuid::new_v4().to_string();
         let started_at = Utc::now().to_rfc3339();
         let artifact_dir = self.artifacts_dir.join(&run_id);
@@ -647,6 +697,27 @@ fn validate_manifest(manifest: &PluginManifest) -> Result<()> {
         }
     }
 
+    let mut secret_env_vars = HashSet::new();
+    for secret in &manifest.secrets {
+        validate_secret_env_var(&secret.env_var)?;
+        if !secret_env_vars.insert(&secret.env_var) {
+            bail!("duplicate secret env_var `{}`", secret.env_var);
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_secret_env_var(env_var: &str) -> Result<()> {
+    let mut chars = env_var.chars();
+    let starts_ok = chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_');
+    if !starts_ok || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        bail!(
+            "secret env_var `{env_var}` must be a valid environment variable name (ASCII letters, digits, or underscore, not starting with a digit)"
+        );
+    }
     Ok(())
 }
 
@@ -690,6 +761,21 @@ fn validate_container_name(container: &str) -> Result<()> {
         bail!("container image name contains unsupported characters");
     }
     Ok(())
+}
+
+/// Names of a manifest's `required` secrets not currently set in this
+/// process's own environment. Called independently by both the server
+/// (`run_plugin_with_input`, for a fast, friendly failure before spawning the
+/// runner at all) and the runner itself (before invoking Docker), matching
+/// the existing pattern of the runner re-validating a manifest rather than
+/// trusting the server passed a valid one.
+pub fn missing_required_secrets(manifest: &PluginManifest) -> Vec<&str> {
+    manifest
+        .secrets
+        .iter()
+        .filter(|secret| secret.required && env::var_os(&secret.env_var).is_none())
+        .map(|secret| secret.env_var.as_str())
+        .collect()
 }
 
 pub fn validate_docker_policy(policy: &DockerPolicy) -> Result<()> {
@@ -940,6 +1026,7 @@ mod tests {
             }],
             docker: DockerPolicy::default(),
             assets: Vec::new(),
+            secrets: Vec::new(),
         };
 
         let input = serde_json::json!({
@@ -970,6 +1057,7 @@ mod tests {
             arguments: Vec::new(),
             docker: DockerPolicy::default(),
             assets: Vec::new(),
+            secrets: Vec::new(),
         };
 
         let input = serde_json::json!({ "unexpected": "value" });

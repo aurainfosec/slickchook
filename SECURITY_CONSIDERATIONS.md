@@ -47,6 +47,21 @@ Last reviewed: 2026-08-06
   `0640`. Passwords, if later required for remote connections, must be
   supplied out-of-band through a secret manager or protected deployment
   mechanism.
+- Plugins that need a persistent credential for an external service (for
+  example, a Shodan API key) declare it in their manifest as `[[secrets]]`
+  — an environment variable name and description, never a per-call
+  `option`/`argument` a client can supply. Values are configured once,
+  server-wide, in `/etc/slickchook/plugin-secrets.env`, owned by
+  `root:slickchook` with mode `0640` and loaded via the same
+  `EnvironmentFile=` systemd mechanism as `postgres.env`. A configured
+  value is only ever forwarded into a container as `docker run --env NAME`
+  (the bare variable name, no `=value`), so it flows entirely through
+  inherited process environment at every hop and never appears in any
+  argv, log line, or `plugin_runs` record — unlike the client-supplied
+  credentials described in SC-005. `list_plugins` reports whether each
+  declared secret is currently configured as a boolean only, never the
+  value itself, and a run fails immediately, before any container is
+  created, if a required secret is missing.
 - Analyzer plugins (e.g. `osvscanner`, `screensanitize`) receive `/input` as a
   read-only mount by default; only a purpose-built fetcher may set
   `docker.input_read_only = false`, and that mount is still constrained to
@@ -402,6 +417,39 @@ invisible to it), and `read_artifact` returned image bytes as a base64
 string embedded in a JSON text block rather than a proper MCP image
 content type. Both are now fixed: artifact listing recurses, and
 `read_artifact` returns a real `image` content block for image mime types.
+
+### SC-018: Plugin-configured secrets are fully exposed to their own container
+
+Status: Accepted risk  
+Severity: High impact if a plugin package or image is malicious or compromised
+
+Manifest-declared `[[secrets]]` (see "Existing controls") keep a persistent
+credential like a Shodan API key out of per-call inputs, run history, and
+argv — but once a value is forwarded into a container as an environment
+variable, it is exposed to that container exactly as fully as the plugin's
+own code: any process running inside can read it, exfiltrate it over the
+network (for any plugin with `docker.network != "none"`), or write it into
+an artifact that later gets treated as report data rather than credential
+material. This is not a gap in the mechanism itself; it is the same "plugin
+containers are untrusted even after their manifests are approved" boundary
+from the top of this document, now carrying a longer-lived, more valuable
+credential than a one-off test password.
+
+Recommended hardening:
+
+- Review a manifest that declares `[[secrets]]` with at least the same
+  scrutiny as one that installs a `Dockerfile` (SC-003): confirm the image
+  only sends the credential to the service it's actually for, and does not
+  log request/response bodies that might include it.
+- Where the underlying tool supports it, prefer `docker.network = "none"`
+  plus a purpose-built fetch step, or the narrowest possible egress, over
+  general internet access for a plugin holding a real credential.
+- Treat any stdout/stderr a secret-holding plugin produces as at least as
+  sensitive as its own report artifacts (SC-008), since a buggy or verbose
+  tool can echo the credential it was just handed.
+- Rotate a key immediately if a plugin holding it is later found to be
+  malicious, compromised, or simply buggy in a way that could have exposed
+  it.
 
 ## Reporting and maintenance
 

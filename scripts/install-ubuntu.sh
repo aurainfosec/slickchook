@@ -13,6 +13,7 @@ readonly PLUGIN_COMMAND="/usr/local/sbin/slickchook-plugin"
 readonly DB_NAME="slickchook_db"
 readonly DB_ROLE="slickchook"
 readonly DB_ENV="/etc/slickchook/postgres.env"
+readonly PLUGIN_SECRETS_ENV="/etc/slickchook/plugin-secrets.env"
 # The hostname the TLS certificate is issued for and Caddy's site block is
 # keyed to. Connecting clients (e.g. a paired AI-agent instance) must use
 # this same hostname, not a bare IP: TLS servers select a certificate by the
@@ -195,6 +196,17 @@ if [[ ! -f ${CONFIG_PATH} ]]; then
   printf '%s\n' 'bind_addr = "127.0.0.1:8080"' > "${CONFIG_PATH}"
   chown root:"${SERVICE_GROUP}" "${CONFIG_PATH}"
   chmod 0640 "${CONFIG_PATH}"
+fi
+# Created empty and left alone on upgrade: this is where an admin configures
+# API keys/credentials a plugin's manifest declares via [[secrets]] (see
+# RUNNER.md), one KEY=value per line, matching each plugin's declared
+# `env_var` exactly. Loaded by the unit's `EnvironmentFile=-` directive,
+# which tolerates the file being empty or (on a fresh install) not yet
+# customized.
+if [[ ! -f ${PLUGIN_SECRETS_ENV} ]]; then
+  : > "${PLUGIN_SECRETS_ENV}"
+  chown root:"${SERVICE_GROUP}" "${PLUGIN_SECRETS_ENV}"
+  chmod 0640 "${PLUGIN_SECRETS_ENV}"
 fi
 install -d -o root -g "${SERVICE_GROUP}" -m 0750 "${STATE_DIR}/plugins"
 chown -R root:"${SERVICE_GROUP}" "${STATE_DIR}/plugins"
