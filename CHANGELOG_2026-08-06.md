@@ -180,42 +180,46 @@
   hot-reload) — `sudo slickchook-plugin install
   plugins/sublert` is still required to pick it up, exactly as for an
   image change.
-- Added support for plugins that need a persistent credential for an
-  external service (e.g. a Shodan API key), rather than only ever
-  accepting one as a per-call `option`/`argument` the way `medusa`
-  currently does (already flagged in SC-005 as unsafe for anything but
-  test-only values, since it gets retained in `plugin_runs` history in
-  plaintext). A manifest now declares `[[secrets]]` — an environment
-  variable name, a description, and whether it's required — and an
-  administrator configures the actual value once, server-wide, in a new
-  `/etc/slickchook/plugin-secrets.env` (root:slickchook, `0640`, loaded
-  via `EnvironmentFile=-` exactly like the existing `postgres.env`).
-  The value is never touched by any new code path between the config
-  file and the container: `slickchook-runner` already inherits its
-  parent's full environment (confirmed no `.env_clear()`/`.env()` calls
-  exist anywhere in the server's runner-spawning code), so the only new
-  runner behavior is appending `docker run --env NAME` — the bare
-  variable name, never `NAME=value` — so Docker itself reads the value
-  from the runner's own environment rather than from argv. This means a
-  configured secret never appears in this process's own argv, `ps`
-  output, or any log line, unlike the client-supplied `--input-json`
-  argument every run already passes.
-  A plugin's required secret being unset now fails the run immediately,
-  checked independently in both the server (before it even spawns the
-  runner, for a fast and friendly error) and the runner itself (before
-  touching Docker at all, matching the existing "runner re-validates
-  independently" pattern used for Docker policy). `list_plugins` reports
-  `configured: true/false` per declared secret, computed from the same
-  environment check, so an agent can see upfront that a plugin needs
-  setup rather than discovering it via a run failure.
-  Documented in RUNNER.md (deployment/configuration), PLUGINS.md
-  (manifest schema, for plugin authors), and
-  SECURITY_CONSIDERATIONS.md's new SC-018 (the residual risk: once a
-  secret is inside a container, it's exposed to that container exactly
-  as fully as the plugin's own code — the existing "plugin containers
-  are untrusted" boundary, now carrying a longer-lived credential).
-  Verified with `cargo test --lib` (11/11, including two new tests
-  covering env-var-name validation/duplicate detection and that only
-  *required* missing secrets are reported, not optional ones) and a
-  clean `cargo build`; no plugin currently declares `[[secrets]]`, so
-  this is additive with no behavior change for any existing plugin.
+- Fixed the `gowitness` → `screensanitize` screenshot pipeline, which
+  had never actually worked, discovered while investigating a report
+  that screenshots "are not retrievable." Verified live, three
+  compounding bugs:
+  - `gowitness` wrote its screenshot to `/artifacts/screenshots`, but
+    `screensanitize`'s `input_run_id` chaining only ever exposes the
+    prior run's own `/input` staging directory — the convention
+    `webfetch` uses to hand off fetched content, which `gowitness` was
+    never wired into. A real chained `screensanitize` call against a
+    real `gowitness` screenshot produced `"results": []` — zero images
+    found, no error, no indication anything was wrong. Fixed by
+    changing `gowitness.toml` to write into `/input` instead (with
+    `docker.input_read_only = false`, mirroring `webfetch` exactly).
+  - `screensanitize`'s own re-encoded/sanitized image write
+    (`sanitize.py`) was separately, silently failing: it tried to save
+    the sanitized JPEG back into `path + ".sanitized.jpg"` — inside
+    `/input`, which is correctly read-only for an analyzer plugin. The
+    failure was swallowed by a broad `except Exception`, which also
+    skipped the OCR and prompt-injection flag detection that ran
+    *after* it in the same `try` block — meaning even a properly-fed
+    screenshot would have produced no OCR text and no flags at all, only
+    a per-item `"error"` string easy to miss. Fixed by writing the
+    sanitized image into the writable output directory (alongside
+    `sanitized.json`) instead, and recording its filename as
+    `sanitized_file` in the JSON result.
+  - Separately, `list_run_artifacts` never recursed into subdirectories
+    (`fs::read_dir` only lists a directory's immediate entries), so a
+    screenshot nested under `screenshots/` was invisible to it even
+    before any chaining was involved. Fixed `list_artifacts` to walk
+    subdirectories (still skipping symlinks, matching prior behavior).
+  - `read_artifact` returned image bytes as a base64 string embedded in
+    a JSON text content block rather than a real MCP `image` content
+    type — technically present, but not usable by a client expecting an
+    actual image. `rmcp` 0.5.0 already supports `Content::image(data,
+    mime_type)`; `read_artifact` now returns a `CallToolResult` with a
+    text block (metadata) plus a separate image block for image
+    artifacts, instead of a single opaque `String`.
+  Verified for real: ran `gowitness` against `example.com`, confirmed
+  its screenshot was invisible via `list_run_artifacts` and produced
+  `"results": []` when chained into `screensanitize` before the fix.
+  `cargo test --lib` passes (10/10, including a new test covering
+  `list_artifacts`'s recursion). Documented in `SECURITY_CONSIDERATIONS.md`'s
+  SC-017, whose stated mitigation this directly restores.
