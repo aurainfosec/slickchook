@@ -68,3 +68,49 @@
   (mimicking the always-created staging directory) — the output file is
   still correctly fixed to readable, the `input` directory is left
   completely untouched, and no fixup error is logged.
+- Investigated a client report that "large result payloads (e.g.
+  waymore's) are serialized with unescaped control characters, producing
+  invalid JSON that breaks strict parsers" — **could not reproduce it,
+  and traced the full pipeline from producer to wire format without
+  finding a defect anywhere**, documented here so this specific report
+  isn't re-investigated from scratch if it resurfaces:
+  - Ran a real, large `waymore` job (`-mode U --stream`) against
+    `example.com` to completion. The resulting `stdout.txt` genuinely
+    contains raw control bytes (confirmed via `read_artifact`: at least
+    one NUL (`0x00`) and one ETX (`0x03`)), tracing back to `waymore`'s
+    own source (`xnl-h4ck3r/waymore` `v8.9`, `linksFoundAdd`/
+    `linksFoundResponseAdd` in `waymore.py`): archived URLs are
+    URL-decoded and printed to stdout completely unsanitized, so a
+    percent-encoded control byte (e.g. `%00`) in an archived URL decodes
+    straight through with no filtering on waymore's end.
+  - That confirms the client's premise that the *data* can genuinely
+    contain control characters, but every layer downstream of it turned
+    out to handle that correctly:
+    - Slickchook's own code has no manual JSON string construction
+      anywhere (checked `main.rs`/`plugin_manager.rs` directly) — every
+      response goes through `serde_json::to_string`/`to_string_pretty`,
+      which escapes every control byte per the JSON spec regardless of
+      value.
+    - `rmcp`'s SSE handler (pinned `0.5.0`,
+      `transport/sse_server.rs::sse_handler`) serializes each JSON-RPC
+      message with compact `serde_json::to_string` (not pretty — so no
+      raw newlines from formatting whitespace either) before handing it
+      to `axum::response::sse::Event::data(...)`.
+    - `axum`'s `Event::data`/`write_buf` (pinned `0.8.9`,
+      `axum/src/response/sse.rs`) operates at the raw byte level via
+      `memchr::memchr2_iter(b'\n', b'\r', buf)`, correctly re-prefixing
+      every line of a multi-line payload with `data: ` per the SSE spec
+      — a real newline byte anywhere in the payload would still be
+      framed correctly, not that one should ever appear here given the
+      compact JSON above.
+  - Verified the actual, complete real-world response (not a
+    hand-built test case): every nesting layer of the ~65 KB truncated
+    `stdout_preview` from the real `waymore` run — outer JSON-RPC
+    envelope, the `start_plugin`/`plugin_status` job wrapper, and the
+    innermost `PluginRunResult` — parsed successfully with a strict
+    JSON parser.
+  - If this resurfaces against a current build, the likely places left
+    to look are the *client's own* MCP parsing implementation, or
+    something specific to a payload/environment not reproduced here —
+    not Slickchook's serialization or the pinned `rmcp`/`axum` SSE
+    framing, which are now confirmed correct for arbitrary byte content.
