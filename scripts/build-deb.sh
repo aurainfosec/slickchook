@@ -74,6 +74,15 @@ if [ ! -e /etc/slickchook/postgres.env ]; then
   chown root:slickchook /etc/slickchook/postgres.env
   chmod 0640 /etc/slickchook/postgres.env
 fi
+# Created empty and left alone on upgrade: where an admin configures API
+# keys/credentials a plugin's manifest declares via [[secrets]] (see
+# RUNNER.md), one KEY=value per line, matching each plugin's declared
+# `env_var` exactly.
+if [ ! -e /etc/slickchook/plugin-secrets.env ]; then
+  : > /etc/slickchook/plugin-secrets.env
+  chown root:slickchook /etc/slickchook/plugin-secrets.env
+  chmod 0640 /etc/slickchook/plugin-secrets.env
+fi
 systemctl daemon-reload
 systemctl enable slickchook.service >/dev/null
 systemctl restart slickchook.service || systemctl start slickchook.service

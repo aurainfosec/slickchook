@@ -180,3 +180,42 @@
   hot-reload) — `sudo slickchook-plugin install
   plugins/sublert` is still required to pick it up, exactly as for an
   image change.
+- Added support for plugins that need a persistent credential for an
+  external service (e.g. a Shodan API key), rather than only ever
+  accepting one as a per-call `option`/`argument` the way `medusa`
+  currently does (already flagged in SC-005 as unsafe for anything but
+  test-only values, since it gets retained in `plugin_runs` history in
+  plaintext). A manifest now declares `[[secrets]]` — an environment
+  variable name, a description, and whether it's required — and an
+  administrator configures the actual value once, server-wide, in a new
+  `/etc/slickchook/plugin-secrets.env` (root:slickchook, `0640`, loaded
+  via `EnvironmentFile=-` exactly like the existing `postgres.env`).
+  The value is never touched by any new code path between the config
+  file and the container: `slickchook-runner` already inherits its
+  parent's full environment (confirmed no `.env_clear()`/`.env()` calls
+  exist anywhere in the server's runner-spawning code), so the only new
+  runner behavior is appending `docker run --env NAME` — the bare
+  variable name, never `NAME=value` — so Docker itself reads the value
+  from the runner's own environment rather than from argv. This means a
+  configured secret never appears in this process's own argv, `ps`
+  output, or any log line, unlike the client-supplied `--input-json`
+  argument every run already passes.
+  A plugin's required secret being unset now fails the run immediately,
+  checked independently in both the server (before it even spawns the
+  runner, for a fast and friendly error) and the runner itself (before
+  touching Docker at all, matching the existing "runner re-validates
+  independently" pattern used for Docker policy). `list_plugins` reports
+  `configured: true/false` per declared secret, computed from the same
+  environment check, so an agent can see upfront that a plugin needs
+  setup rather than discovering it via a run failure.
+  Documented in RUNNER.md (deployment/configuration), PLUGINS.md
+  (manifest schema, for plugin authors), and
+  SECURITY_CONSIDERATIONS.md's new SC-018 (the residual risk: once a
+  secret is inside a container, it's exposed to that container exactly
+  as fully as the plugin's own code — the existing "plugin containers
+  are untrusted" boundary, now carrying a longer-lived credential).
+  Verified with `cargo test --lib` (11/11, including two new tests
+  covering env-var-name validation/duplicate detection and that only
+  *required* missing secrets are reported, not optional ones) and a
+  clean `cargo build`; no plugin currently declares `[[secrets]]`, so
+  this is additive with no behavior change for any existing plugin.
