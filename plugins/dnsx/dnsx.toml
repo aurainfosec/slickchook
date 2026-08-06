@@ -1,19 +1,79 @@
 name = "dnsx"
-container = "projectdiscovery/dnsx:v1.2.2"
-description = "Resolves one authorized domain or hostname and reports DNS records and probe results."
-fixed_args = ["-silent", "-json"]
+container = "slickchook-plugin/dnsx:local"
+description = "Resolves one authorized domain or hostname and reports DNS records and probe results. Built locally from dnsx v1.3.0 (the upstream v1.2.2 Docker Hub image never received a working release: v1.2.2 did not support passing a literal host to -l at all, and its unconditional interactive PDCP auth prompt fails ungracefully with no TTY; both are fixed as of v1.3.0/-auth=false). stdout includes dnsx's banner ahead of the JSON result line, since -silent suppresses the JSON result entirely in this mode rather than just suppressing the banner as documented."
+fixed_args = ["-json", "-auth=false", "-duc"]
 
 [[options]]
 name = "target"
 description = "Authorized domain or hostname to resolve."
 required = true
-flag = "-d"
+flag = "-l"
 
 [[options]]
-name = "record_type"
-description = "Optional record type, for example A, AAAA, MX, NS, or CNAME."
+name = "aaaa"
+description = "Query AAAA records instead of the default A record."
 required = false
-flag = "-query"
+flag = "-aaaa"
+
+[[options]]
+name = "cname"
+description = "Query CNAME records instead of the default A record."
+required = false
+flag = "-cname"
+
+[[options]]
+name = "ns"
+description = "Query NS records instead of the default A record."
+required = false
+flag = "-ns"
+
+[[options]]
+name = "txt"
+description = "Query TXT records instead of the default A record."
+required = false
+flag = "-txt"
+
+[[options]]
+name = "mx"
+description = "Query MX records instead of the default A record."
+required = false
+flag = "-mx"
+
+[[options]]
+name = "srv"
+description = "Query SRV records instead of the default A record."
+required = false
+flag = "-srv"
+
+[[options]]
+name = "ptr"
+description = "Query PTR records instead of the default A record."
+required = false
+flag = "-ptr"
+
+[[options]]
+name = "soa"
+description = "Query SOA records instead of the default A record."
+required = false
+flag = "-soa"
+
+[[options]]
+name = "caa"
+description = "Query CAA records instead of the default A record."
+required = false
+flag = "-caa"
+
+[[options]]
+name = "any"
+description = "Query ANY record type."
+required = false
+flag = "-any"
+
+[[options]]
+name = "all"
+description = "Query all supported DNS record types (A, AAAA, CNAME, NS, TXT, SRV, PTR, MX, SOA, AXFR, CAA)."
+required = false
+flag = "-all"
 
 [docker]
 network = "bridge"
