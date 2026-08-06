@@ -322,3 +322,65 @@ volume is the same run's own `/artifacts` directory. Only a file's owner
 (or root) may relax that file's own permissions, which is why this must
 run as that same UID rather than being done by the runner or main service
 process directly. A failure here is logged and does not fail the run.
+
+### SC-016: `rmcp` DNS rebinding vulnerability (CVE-2026-42559) — pinned version predates the fix, and the fix requires a transport migration
+
+Status: Open, mitigated in the current deployment model  
+Severity: High per upstream advisory; lower in practice for this deployment, see below
+
+Slickchook is pinned to `rmcp 0.5.0`. Versions prior to `1.4.0` do not
+validate the incoming HTTP `Host` header on their network-facing server
+transport, allowing a malicious public website to reach a
+loopback-bound MCP server via a DNS rebinding attack and invoke any
+tool it exposes, using the victim's browser as a confused deputy
+([GHSA-89vp-x53w-74fx](https://github.com/modelcontextprotocol/rust-sdk/security/advisories/GHSA-89vp-x53w-74fx),
+CVSS 8.8). The advisory names the newer "Streamable HTTP" transport
+module specifically, but the same underlying gap exists in the older
+SSE transport Slickchook actually uses: `sse_server.rs` at our pinned
+`rmcp-v0.5.0` contains no Host, Origin, or allowlist logic at all
+(confirmed by inspecting that file directly).
+
+Two things currently limit the practical exposure of this gap in
+Slickchook's actual deployment, matching the advisory's own recommended
+workarounds:
+
+- The server only ever binds to `bind_addr = "127.0.0.1:8080"` (loopback),
+  never `0.0.0.0`.
+- `install-ubuntu.sh` fronts it with Caddy, configured with a TLS site
+  block scoped to one specific `CADDY_HOSTNAME:CADDY_LISTEN_PORT` and no
+  catch-all block; Caddy's default virtual-host matching means a
+  request whose `Host` header doesn't match that hostname — exactly
+  what a DNS-rebound request would carry — doesn't match the site block
+  and is rejected before reaching Slickchook.
+
+The residual exposure is a browser running *on the same host* as a live
+Slickchook instance, which could still reach `127.0.0.1:8080` directly,
+bypassing Caddy entirely. This seems unlikely given Slickchook is
+deployed as a headless backend service that nothing is expected to
+browse to locally, but it is not impossible (for example, an
+administrator doing local, interactive debugging on the box itself).
+
+This is not a same-day fix: the patched version (`rmcp 1.4.0`) ships six
+minor versions after `SseServer` — the exact transport type Slickchook's
+`main.rs` depends on — was deleted from the crate entirely
+([PR #562](https://github.com/modelcontextprotocol/rust-sdk/pull/562),
+landed at `rmcp 0.11.0`), in favor of a different type,
+`StreamableHttpService`, aligned with the current MCP spec (SSE was
+removed from the spec itself). Reaching any version with the fix
+requires migrating `main.rs`'s server setup to that new transport, not
+just bumping the `Cargo.toml` version — including re-verifying the
+whole MCP handshake flow (Streamable HTTP's session/endpoint model
+differs from SSE's separate `/sse` + `/message?sessionId=...` pattern),
+coordinating with whatever connects to Slickchook as an MCP client
+today (also presumably SSE-based), and auditing the other
+`[**breaking**]`-tagged changes across the intervening releases.
+
+Recommended hardening:
+
+- Track this as a planned migration, not a quick patch: upgrade `rmcp`
+  to `>= 1.4.0` and migrate the server transport to
+  `StreamableHttpService`, with its own dedicated testing pass.
+- Until then, do not change `bind_addr` away from a loopback address,
+  and do not remove or bypass the Caddy front-end's hostname-scoped site
+  block — both are load-bearing for the mitigation described above.
+- Re-review this entry once the migration lands and mark it resolved.
