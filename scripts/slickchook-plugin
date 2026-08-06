@@ -138,6 +138,20 @@ check_assets_in_image() {
       echo "error: ${name}: declared asset ${dest} in ${image} is ${size} bytes, below its declared minimum of ${min_size}" >&2
       return 1
     fi
+    # `docker cp` above reads via the daemon's own access, bypassing normal
+    # Unix permission checks entirely - it can't tell us whether the plugin
+    # container's actual runtime UID (65534) can read the file itself. A
+    # package's files are normalized to root-owned mode 0640 before a
+    # Dockerfile ever runs (see normalize_package), and a plain `COPY`
+    # preserves that mode into the image unless the Dockerfile explicitly
+    # re-chmods it - silently leaving a bundled asset unreadable at runtime
+    # even though it's genuinely present at the right size. Verify for real,
+    # as the plugin's own runtime UID would see it.
+    if ! docker run --rm --user 65534:65534 --entrypoint sh "${image}" \
+        -c "test -r '${dest}'" >/dev/null 2>&1; then
+      echo "error: ${name}: declared asset ${dest} in ${image} exists but is not readable by UID 65534 (the plugin's runtime user) - check the Dockerfile sets a world-readable mode after COPYing it, e.g. \`RUN chmod 0644 ${dest}\` or \`COPY --chmod=0644\`" >&2
+      return 1
+    fi
   done < <(print_assets "${manifest}")
 }
 
