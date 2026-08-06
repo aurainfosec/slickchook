@@ -19,6 +19,66 @@ These instructions assume:
 - the repository is the current directory; and
 - Rust is installed on the build machine.
 
+## Intended deployment topology
+
+Slickchook is designed to be one half of a **per-user pair**: an AI-agent
+container that a single user interacts with, and its own dedicated
+Slickchook MCP server VM that container talks to. Both run as separate LXD
+instances on a shared virtualization host; nothing about Slickchook itself
+requires LXD specifically, but this is the topology the Caddy front-end
+below (hostname-based routing, provisioning-time certificate pinning) is
+designed for, and the model this document's guidance assumes.
+
+```
+┌─────────────────────── LXD host ───────────────────────┐
+│                                                          │
+│   ┌───────────────────┐         ┌────────────────────┐  │
+│   │  AI-agent          │  HTTPS  │  Slickchook MCP     │  │
+│   │  container (user)  │────────▶│  server VM (user)  │  │
+│   │                     │  :8443  │  Caddy → :8080     │  │
+│   └───────────────────┘         └────────────────────┘  │
+│                                                          │
+│   ┌───────────────────┐         ┌────────────────────┐  │
+│   │  AI-agent          │  HTTPS  │  Slickchook MCP     │  │
+│   │  container (other  │────────▶│  server VM (other  │  │
+│   │  user)             │  :8443  │  user)              │  │
+│   └───────────────────┘         └────────────────────┘  │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+Each pair is provisioned together by a control plane external to this
+repository (not something Slickchook automates itself). That control plane
+is the natural place to own the steps that make a pair usable:
+
+1. Create the AI-agent container and the Slickchook VM together, on
+   whatever internal network the LXD host provides between instances.
+2. Run this repository's installer on the new VM (`scripts/install-ubuntu.sh`
+   or the `.deb`), which stands up Slickchook itself and the Caddy TLS
+   front-end described below.
+3. Give the paired AI-agent container a way to resolve `CADDY_HOSTNAME` to
+   that specific VM's internal address (an `/etc/hosts` entry is simplest;
+   a real internal DNS zone works too) — **not** a bare IP, for the SNI
+   reason explained below.
+4. Read the certificate fingerprint the installer prints at the end of
+   provisioning and deliver it to the AI-agent container's own MCP client
+   configuration as the exact, pinned certificate to trust for this
+   connection.
+5. Point the AI-agent container's MCP client at
+   `https://<CADDY_HOSTNAME>:<CADDY_LISTEN_PORT>/sse`.
+
+The control plane is the only party with an authoritative view of both
+sides of a freshly-created pair, which is exactly why certificate trust is
+established there (step 4) rather than via a shared CA or
+trust-on-first-connection — see "Establish trust at provisioning time" below
+for why that matters.
+
+Slickchook has no concept of separate users or tenants of its own (see
+`SECURITY_CONSIDERATIONS.md` SC-012): the one-VM-per-user pairing above is
+what actually provides isolation between users today, by giving each user
+their own entire server instance, artifact directory, and Docker daemon,
+rather than any per-request authentication inside a shared server.
+
 ## Automated installation
 
 For a standard Ubuntu Server, build the release binaries and run the included
