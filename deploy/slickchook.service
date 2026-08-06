@@ -11,6 +11,7 @@ WorkingDirectory=/var/lib/slickchook
 Environment=SLICKCHOOK_RUNNER=/opt/slickchook/slickchook-runner
 Environment=SLICKCHOOK_CONFIG=/etc/slickchook/slickchook.toml
 EnvironmentFile=-/etc/slickchook/postgres.env
+EnvironmentFile=-/etc/slickchook/plugin-secrets.env
 Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/slickchook/slickchook
 Restart=on-failure

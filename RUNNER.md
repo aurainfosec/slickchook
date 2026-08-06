@@ -368,6 +368,47 @@ Current capability policy:
 Containers run with `--cap-drop ALL`, `--security-opt no-new-privileges`, a
 read-only root filesystem, a non-root user, resource limits, no stdin, and only
 the individual run artifact directory mounted writable at `/artifacts`.
+
+## Configuring plugin API keys and secrets
+
+Some plugins need a persistent credential for an external service they call
+into — a Shodan API key, for example — rather than something an MCP client
+supplies per call. A plugin declares this in its manifest as `[[secrets]]`
+(see PLUGINS.md), naming the environment variable its container expects and
+whether it's required. Configure the actual value once, server-wide, in
+`/etc/slickchook/plugin-secrets.env`:
+
+```bash
+sudo tee -a /etc/slickchook/plugin-secrets.env >/dev/null <<'EOF'
+SHODAN_API_KEY=your-real-key-here
+EOF
+sudo systemctl restart slickchook.service
+```
+
+The installer (and the `.deb` package) creates this file empty, owned
+`root:slickchook` with mode `0640`, and the unit loads it via
+`EnvironmentFile=-/etc/slickchook/plugin-secrets.env` — the leading `-` makes
+it optional, so a fresh install with nothing configured still starts
+cleanly. A key's name in this file must exactly match the `env_var` a
+plugin's manifest declares.
+
+The value flows entirely through inherited process environment — the
+`slickchook` service, then the setgid runner it spawns (which inherits its
+parent's environment by default), then `docker run --env NAME` (the bare
+variable name, no `=value`, so Docker reads it from the runner's own
+environment rather than argv) — and never appears in any argv, log line, or
+the `plugin_runs` history table, unlike a client-supplied input (see
+SECURITY_CONSIDERATIONS.md's SC-005). `list_plugins` reports
+`configured: true/false` per declared secret so an MCP client can see
+upfront whether a plugin is usable, without the value itself ever being
+returned. A plugin with a missing *required* secret fails the run
+immediately, before any Docker container is created.
+
+Once a secret is inside a plugin's container, it is exposed to that
+container exactly as fully as the plugin's own code — see SC-018 in
+SECURITY_CONSIDERATIONS.md before configuring a real credential for a
+plugin you haven't reviewed.
+
 ## Static-analysis input mounts
 
 Every plugin run receives a per-run staging directory at `artifacts/<run-id>/input`.
