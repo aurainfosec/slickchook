@@ -193,6 +193,19 @@ async fn fixup_artifact_permissions(artifact_dir: &Path) {
         .arg("/artifacts")
         .arg("-mindepth")
         .arg("1")
+        // `/artifacts/input` is always created host-side (by the slickchook
+        // service, not the plugin container) before the container even
+        // starts, whether or not this run actually uses input chaining - the
+        // slickchook service already owns it and can read it fine on its
+        // own, so it's excluded here rather than producing a permission
+        // error on every single run trying to chmod a directory this
+        // container was never going to own.
+        .arg("!")
+        .arg("-path")
+        .arg("/artifacts/input")
+        .arg("!")
+        .arg("-path")
+        .arg("/artifacts/input/*")
         .arg("-exec")
         .arg("chmod")
         .arg("a+rX")

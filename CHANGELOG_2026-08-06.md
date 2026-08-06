@@ -45,3 +45,26 @@
   (`--user 65534:65534 --read-only --cap-drop ALL --security-opt
   no-new-privileges`, resource limits, the manifest's own `tmpfs`), all
   producing correct, fresh DNS results with no flakiness.
+- Fixed a real, universal (not plugin-specific) side effect of the
+  post-run artifact permission fixup from PR #15, noticed while
+  confirming the `dnsx` fix above worked end-to-end: every run gets a
+  default `<artifact_dir>/input` directory created host-side by the
+  slickchook service itself (`plugin_manager.rs`, unconditionally,
+  whether or not the run actually uses input chaining) — owned by the
+  `slickchook` service user, not the plugin container's UID 65534. The
+  fixup's `find /artifacts -mindepth 1 -exec chmod a+rX {} +` walked
+  into this directory too and failed trying to chmod something it was
+  never going to own, logging `artifact permission fixup failed: chmod:
+  /artifacts/input: Operation not permitted` on *every single run*,
+  regardless of plugin. Harmless in practice (the slickchook service
+  already owns that directory and can read it fine on its own, and the
+  plugin's own actual output still got fixed up correctly regardless),
+  but noisy and confusing — this exact log line is what led to
+  wondering whether `dnsx` was still broken after the fix above, when
+  it wasn't. `/artifacts/input` and everything under it is now excluded
+  from the fixup's scope entirely.
+  Verified for real: a container that writes a file and `chmod 600`s it
+  (mirroring `testssl.sh`) alongside a host-created `input` subdirectory
+  (mimicking the always-created staging directory) — the output file is
+  still correctly fixed to readable, the `input` directory is left
+  completely untouched, and no fixup error is logged.
