@@ -146,3 +146,37 @@
   already-built, still-broken image with a clear, actionable message
   before any Dockerfile fix was applied, confirming it actually catches
   this class of bug rather than being a theoretical improvement.
+- Fixed `sublert` never actually querying the authorized target domain
+  at all, reported by a client as returning a "502 Bad Gateway" and
+  initially suspected to be nothing but crt.sh's own infrastructure
+  being unreliable. A real `run_plugin` call reproduced a failure, but
+  the actual stderr showed the container invoked as `["-d",
+  "example.com"]` and `collect_ct.py` raising `HTTPError 404` — not 502.
+  `sublert.toml` declared `target` as an `[[options]]` entry with `flag
+  = "-d"`, so the runner correctly passed `-d example.com`, but
+  `collect_ct.py` (this plugin's bespoke script, not the real upstream
+  `sublert` tool) reads its domain from `sys.argv[1]` positionally, with
+  no flag parsing at all — so `domain` was always the literal string
+  `"-d"`, and every run queried crt.sh for the nonsense domain `%.-d`
+  instead of the real target, regardless of crt.sh's own health.
+  Separately confirmed crt.sh itself is also genuinely, intermittently
+  returning 502 right now for well-formed queries too (tested directly:
+  identical 502 for both the malformed `%.-d` query and a correctly
+  formed `%.example.com` query in the same few seconds) — so the
+  client's "unreliable upstream" read isn't wrong about crt.sh's current
+  state, it just wasn't the only thing broken here, and this second bug
+  would keep `sublert` permanently non-functional even once crt.sh
+  recovers.
+  Fixed by changing `target` from an `[[options]]` entry with `flag =
+  "-d"` to an `[[arguments]]` entry with `position = 1`, matching how
+  `collect_ct.py` actually consumes its input — confirmed against
+  `plugin_manager.rs`'s `build_container_args`, which renders a
+  flag-less `[[arguments]]` entry as a single bare positional token,
+  unlike `[[options]]` which always emits the flag as a separate
+  preceding token.
+  Note for redeployment: this is a manifest-only change with no
+  Dockerfile/image change, but the running server only ever reads
+  manifests from `/var/lib/slickchook/plugins/` at startup (no
+  hot-reload) — `sudo slickchook-plugin install
+  plugins/sublert` is still required to pick it up, exactly as for an
+  image change.

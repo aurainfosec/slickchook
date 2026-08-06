@@ -3,11 +3,11 @@ container = "slickchook-plugin/sublert:local"
 description = "Monitors certificate-transparency-derived subdomains for one authorized domain."
 fixed_args = []
 
-[[options]]
+[[arguments]]
 name = "target"
 description = "Authorized root domain."
 required = true
-flag = "-d"
+position = 1
 
 [docker]
 network = "bridge"
