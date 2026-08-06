@@ -19,70 +19,48 @@ These instructions assume:
 - the repository is the current directory; and
 - Rust is installed on the build machine.
 
-## Intended deployment topology
+## Recommended: install from the `.deb` package
 
-Slickchook is designed to be one half of a **per-user pair**: an AI-agent
-container that a single user interacts with, and its own dedicated
-Slickchook MCP server VM that container talks to. Both run as separate LXD
-instances on a shared virtualization host; nothing about Slickchook itself
-requires LXD specifically, but this is the topology the Caddy front-end
-below (hostname-based routing, provisioning-time certificate pinning) is
-designed for, and the model this document's guidance assumes.
+For a standard Ubuntu Server, build a native package and install it with
+`apt` — this is the recommended way to deploy Slickchook, since `apt`
+resolves and installs Slickchook's own package dependencies
+(`docker.io`/`docker-ce`, `postgresql`, `postgresql-client`, `adduser`,
+`acl`) for you, on top of everything the installer script below already
+does:
 
-```
-┌─────────────────────── LXD host ───────────────────────┐
-│                                                          │
-│   ┌───────────────────┐         ┌────────────────────┐  │
-│   │  AI-agent          │  HTTPS  │  Slickchook MCP     │  │
-│   │  container (user)  │────────▶│  server VM (user)  │  │
-│   │                     │  :8443  │  Caddy → :8080     │  │
-│   └───────────────────┘         └────────────────────┘  │
-│                                                          │
-│   ┌───────────────────┐         ┌────────────────────┐  │
-│   │  AI-agent          │  HTTPS  │  Slickchook MCP     │  │
-│   │  container (other  │────────▶│  server VM (other  │  │
-│   │  user)             │  :8443  │  user)              │  │
-│   └───────────────────┘         └────────────────────┘  │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+```bash
+cargo build --locked --release --bins
+./scripts/build-deb.sh
+sudo apt install ./dist/slickchook_*_$(dpkg --print-architecture).deb
 ```
 
-Each pair is provisioned together by a control plane external to this
-repository (not something Slickchook automates itself). That control plane
-is the natural place to own the steps that make a pair usable:
+(Use `apt install ./file.deb`, not `dpkg -i`, precisely so dependency
+resolution happens — `dpkg -i` alone will fail or leave dependencies
+unresolved.)
 
-1. Create the AI-agent container and the Slickchook VM together, on
-   whatever internal network the LXD host provides between instances.
-2. Run this repository's installer on the new VM (`scripts/install-ubuntu.sh`
-   or the `.deb`), which stands up Slickchook itself and the Caddy TLS
-   front-end described below.
-3. Give the paired AI-agent container a way to resolve `CADDY_HOSTNAME` to
-   that specific VM's internal address (an `/etc/hosts` entry is simplest;
-   a real internal DNS zone works too) — **not** a bare IP, for the SNI
-   reason explained below.
-4. Read the certificate fingerprint the installer prints at the end of
-   provisioning and deliver it to the AI-agent container's own MCP client
-   configuration as the exact, pinned certificate to trust for this
-   connection.
-5. Point the AI-agent container's MCP client at
-   `https://<CADDY_HOSTNAME>:<CADDY_LISTEN_PORT>/sse`.
+The package's `postinst` performs the same setup steps as
+`install-ubuntu.sh` below (service account, PostgreSQL role/database and
+schema, the systemd unit, and the Caddy TLS front-end) and is equally
+idempotent: running `apt install` again over an existing installation (a
+newer `.deb`) updates it in place — same env-var override mechanism for
+the Caddy hostname/port/cert lifetime as described in that section below,
+since `sudo` resets most environment variables by default:
 
-The control plane is the only party with an authoritative view of both
-sides of a freshly-created pair, which is exactly why certificate trust is
-established there (step 4) rather than via a shared CA or
-trust-on-first-connection — see "Establish trust at provisioning time" below
-for why that matters.
+```bash
+sudo --preserve-env=CADDY_HOSTNAME,CADDY_LISTEN_PORT,CADDY_CERT_DAYS \
+  CADDY_HOSTNAME=my-vm CADDY_LISTEN_PORT=8443 CADDY_CERT_DAYS=730 \
+  apt install ./dist/slickchook_*_$(dpkg --print-architecture).deb
+```
 
-Slickchook has no concept of separate users or tenants of its own (see
-`SECURITY_CONSIDERATIONS.md` SC-012): the one-VM-per-user pairing above is
-what actually provides isolation between users today, by giving each user
-their own entire server instance, artifact directory, and Docker daemon,
-rather than any per-request authentication inside a shared server.
+Plugin packages have their own installation lifecycle and are not copied or
+updated by either installation method. See `PLUGINS.md`.
 
-## Automated installation
+## Alternative: `scripts/install-ubuntu.sh`
 
-For a standard Ubuntu Server, build the release binaries and run the included
-installer from the repository root:
+Where building a redistributable `.deb` isn't wanted (no `dpkg-deb`
+available, or a one-shot deploy without producing a package artifact),
+run the included installer script directly from the repository root
+instead:
 
 ```bash
 cargo build --locked --release --bins
@@ -105,8 +83,13 @@ The same command is used for new installations and updates. On an update it:
   `/var/backups/slickchook` before replacing them; and
 - refuses to proceed if an unmanaged process is listening on port 8080.
 
-Plugin packages have their own installation lifecycle and are not copied or
-updated by this core installer. See `PLUGINS.md`.
+It installs `acl`, `postgresql`, `postgresql-client`, and Caddy itself, the
+same as the `.deb`'s package dependencies do — but unlike the `.deb`, it
+cannot pull in Docker automatically (there's no single correct
+`docker.io`/`docker-ce` choice to default to via a plain `apt-get install`
+the way the package's `Depends:` line expresses it); Docker Engine must
+already be installed and running before you run this script (see step 1
+below).
 
 ## 1. Check Docker and install deployment utilities
 

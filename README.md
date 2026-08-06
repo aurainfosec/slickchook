@@ -85,9 +85,20 @@ when.
 
 ## Getting started
 
-For a production deployment on Ubuntu Server, see
-[`RUNNER.md`](RUNNER.md). For plugin installation and authoring, see
-[`PLUGINS.md`](PLUGINS.md).
+For a production deployment on Ubuntu Server, build and install the
+`.deb` package — the recommended method, since `apt` resolves Slickchook's
+own system dependencies (Docker, PostgreSQL, `acl`) for you:
+
+```bash
+cargo build --locked --release --bins
+./scripts/build-deb.sh
+sudo apt install ./dist/slickchook_*_$(dpkg --print-architecture).deb
+```
+
+See [`RUNNER.md`](RUNNER.md) for the full deployment model, the
+installer-script alternative, enforcement details, and how connecting
+clients should trust the Caddy front-end's certificate. For plugin
+installation and authoring, see [`PLUGINS.md`](PLUGINS.md).
 
 For local development:
 
