@@ -430,6 +430,19 @@ image and no longer discarding `tesseract`'s actual stderr on failure, so
 a future OCR failure is diagnosable from `sanitized.json` directly instead
 of requiring another live debugging round-trip.
 
+A *fifth* bug turned up while independently re-verifying `read_artifact`
+against the raw screenshot itself (not just `screensanitize`'s output):
+it failed outright, unable to open the file. The post-run artifact
+permission fixup's exclusion of `/artifacts/input` (added 2026-08-06 to
+stop that always-empty directory producing a nuisance chmod error)
+excluded not just the directory entry but its entire contents (`find
+-path`'s `*` matches `/` too), so a fetcher plugin's real output written
+there — `webfetch`, and now `gowitness` — never got the same
+host-readability fixup as every other plugin's output. This had been a
+latent bug for `webfetch` all along, just never noticed, since nothing
+had previously called `read_artifact` directly on a fetcher's own file.
+Fixed by excluding only the bare directory path, not its contents.
+
 ### SC-018: Plugin-configured secrets are fully exposed to their own container
 
 Status: Accepted risk  

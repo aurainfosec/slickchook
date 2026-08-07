@@ -216,19 +216,21 @@ async fn fixup_artifact_permissions(artifact_dir: &Path) {
         .arg("/artifacts")
         .arg("-mindepth")
         .arg("1")
-        // `/artifacts/input` is always created host-side (by the slickchook
-        // service, not the plugin container) before the container even
-        // starts, whether or not this run actually uses input chaining - the
-        // slickchook service already owns it and can read it fine on its
-        // own, so it's excluded here rather than producing a permission
-        // error on every single run trying to chmod a directory this
-        // container was never going to own.
+        // `/artifacts/input` itself is always created host-side (by the
+        // slickchook service, not the plugin container) before the container
+        // even starts, whether or not this run actually uses input chaining
+        // - the slickchook service already owns that directory entry and can
+        // read it fine on its own, so only the bare directory path is
+        // excluded here rather than producing a permission error on every
+        // single run trying to chmod a directory this container was never
+        // going to own. Its *contents* are NOT excluded: a fetcher plugin
+        // (docker.input_read_only = false, e.g. webfetch, gowitness) writes
+        // real files there as UID 65534, and those still need the same
+        // host-readability fixup as any other plugin output, or a later
+        // read_artifact call on them fails outright.
         .arg("!")
         .arg("-path")
         .arg("/artifacts/input")
-        .arg("!")
-        .arg("-path")
-        .arg("/artifacts/input/*")
         .arg("-exec")
         .arg("chmod")
         .arg("a+rX")

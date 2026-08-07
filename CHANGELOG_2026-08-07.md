@@ -24,3 +24,34 @@
   that same investigation (after the `/input` wiring, the sanitized-image
   write path, and artifact-retrieval recursion/image-content-type fixes
   from 2026-08-06).
+- Fixed a *fifth* bug in the same screenshot investigation, found while
+  independently re-verifying `read_artifact` against the raw screenshot
+  itself: it failed outright with `failed to open
+  .../input/<file>.jpeg`. Root cause: the post-run artifact permission
+  fixup's `find` command (added 2026-08-06 to stop `/artifacts/input`
+  producing a nuisance chmod error on every run, back when that
+  directory was always empty) excluded not just the bare `/artifacts/input`
+  directory entry but *everything under it* (`find -path`'s `*` matches
+  `/` too, so `! -path /artifacts/input/*` excluded the whole subtree
+  recursively) — meaning a fetcher plugin's actual output written there
+  (`webfetch`, and now `gowitness`) never got the same host-readability
+  fixup as every other plugin's output, leaving it permanently unreadable
+  by the `slickchook` service user. Fixed by excluding only the bare
+  `/artifacts/input` path itself, so its contents are still recursed
+  into and chmod'd like any other plugin output.
+  This was a latent bug for `webfetch` too, just never noticed, since
+  nothing had previously called `read_artifact` directly on a fetcher's
+  own written file (`webfetch`'s output is normally only ever consumed
+  downstream, inside a container, by a chained analyzer like
+  `osvscanner`) — `gowitness` writing a screenshot there is what finally
+  made a human want to `read_artifact` that file directly.
+  Verified for real: a real `gowitness` screenshot's raw file, previously
+  failing to open via `read_artifact`, now returns a proper MCP image
+  content block.
+  Separately, restored two unit tests (`validates_secret_env_var_names`,
+  `reports_missing_required_secrets_only`) for the 2026-08-06
+  plugin-secrets feature that were present in the original PR but went
+  missing from `main` somewhere in a later merge — the underlying feature
+  code was unaffected, only its test coverage was silently lost. Found
+  while re-running `cargo test --lib` and noticing 10 tests instead of
+  the expected 12.
