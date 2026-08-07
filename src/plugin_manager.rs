@@ -1150,6 +1150,93 @@ mod tests {
         assert!(error.to_string().contains("NET_RAW"));
     }
 
+    fn secret_test_manifest(secrets: Vec<PluginSecret>) -> PluginManifest {
+        PluginManifest {
+            name: "probe".to_string(),
+            container: "tool:latest".to_string(),
+            description: "test".to_string(),
+            fixed_args: Vec::new(),
+            options: Vec::new(),
+            arguments: Vec::new(),
+            docker: DockerPolicy::default(),
+            assets: Vec::new(),
+            secrets,
+        }
+    }
+
+    #[test]
+    fn validates_secret_env_var_names() {
+        let manifest = secret_test_manifest(vec![PluginSecret {
+            env_var: "GOOD_NAME_1".to_string(),
+            description: "ok".to_string(),
+            required: true,
+        }]);
+        validate_manifest(&manifest).unwrap();
+
+        let manifest = secret_test_manifest(vec![PluginSecret {
+            env_var: "1_BAD_START".to_string(),
+            description: "bad".to_string(),
+            required: true,
+        }]);
+        let error = validate_manifest(&manifest).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("valid environment variable name")
+        );
+
+        let manifest = secret_test_manifest(vec![
+            PluginSecret {
+                env_var: "DUPLICATE_KEY".to_string(),
+                description: "first".to_string(),
+                required: true,
+            },
+            PluginSecret {
+                env_var: "DUPLICATE_KEY".to_string(),
+                description: "second".to_string(),
+                required: false,
+            },
+        ]);
+        let error = validate_manifest(&manifest).unwrap_err();
+        assert!(error.to_string().contains("duplicate secret"));
+    }
+
+    #[test]
+    fn reports_missing_required_secrets_only() {
+        let unique = uuid::Uuid::new_v4().simple().to_string().to_uppercase();
+        let required_var = format!("SC_TEST_REQUIRED_{unique}");
+        let optional_var = format!("SC_TEST_OPTIONAL_{unique}");
+
+        let manifest = secret_test_manifest(vec![
+            PluginSecret {
+                env_var: required_var.clone(),
+                description: "required".to_string(),
+                required: true,
+            },
+            PluginSecret {
+                env_var: optional_var.clone(),
+                description: "optional".to_string(),
+                required: false,
+            },
+        ]);
+
+        // Neither is set: only the required one is reported missing.
+        assert_eq!(
+            missing_required_secrets(&manifest),
+            vec![required_var.as_str()]
+        );
+
+        // SAFETY: `required_var` is a fresh, uuid-suffixed name used by no other test.
+        unsafe {
+            std::env::set_var(&required_var, "configured");
+        }
+        assert!(missing_required_secrets(&manifest).is_empty());
+
+        unsafe {
+            std::env::remove_var(&required_var);
+        }
+    }
+
     #[test]
     fn lists_artifacts_recursively() {
         let dir = std::env::temp_dir().join(format!("slickchook-la-{}", uuid::Uuid::new_v4()));
