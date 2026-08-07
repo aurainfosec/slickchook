@@ -23,7 +23,10 @@ for root, _, files in os.walk(a.input):
                 clean = image.convert("RGB")
                 clean.save(os.path.join(out_dir, sanitized_name), format="JPEG", quality=85, optimize=True)
             item["sanitized_file"] = sanitized_name
-            text = subprocess.check_output(["tesseract", path, "stdout"], stderr=subprocess.DEVNULL, timeout=30, text=True)
+            ocr = subprocess.run(["tesseract", path, "stdout"], capture_output=True, timeout=30, text=True)
+            if ocr.returncode != 0:
+                raise RuntimeError(f"tesseract failed: {ocr.stderr.strip() or ('exit ' + str(ocr.returncode))}")
+            text = ocr.stdout
             item["ocr_text"] = text[:8192]
             if re.search(r"[\u200b-\u200f\u202a-\u202e\ufeff]", text): item["flags"].append("unicode_controls")
             if re.search(r"(?:[A-Za-z0-9+/]{24,}={0,2})", text): item["flags"].append("base64_like")
