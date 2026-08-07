@@ -4,7 +4,7 @@ This is a living record of Slickchook security assumptions, controls, and open
 concerns. Update it whenever a security-relevant behavior is introduced,
 discovered, fixed, or deliberately accepted.
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-07
 
 ## Trust boundaries
 
@@ -417,6 +417,18 @@ invisible to it), and `read_artifact` returned image bytes as a base64
 string embedded in a JSON text block rather than a proper MCP image
 content type. Both are now fixed: artifact listing recurses, and
 `read_artifact` returns a real `image` content block for image mime types.
+
+Fixing the two bugs above then exposed a *fourth*, previously invisible
+one, discovered live on 2026-08-07 the moment OCR actually ran for the
+first time: `tesseract` itself failed on every single screenshot, because
+Alpine's `tesseract-ocr` package ships the OCR engine with zero language
+data — `tesseract --list-langs` reported 0 available languages. Every
+prior run had swallowed this (`stderr=subprocess.DEVNULL`, a generic
+`except Exception` around it), so the mitigation had never produced a
+single real OCR result. Fixed by adding `tesseract-ocr-data-eng` to the
+image and no longer discarding `tesseract`'s actual stderr on failure, so
+a future OCR failure is diagnosable from `sanitized.json` directly instead
+of requiring another live debugging round-trip.
 
 ### SC-018: Plugin-configured secrets are fully exposed to their own container
 
