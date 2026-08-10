@@ -176,3 +176,14 @@
   Found live: a real `shodan-host` call against `1.1.1.1`, with a
   correctly configured `SHODAN_API_KEY`, failed with this exact
   traceback before the fix.
+- Correction to the entry above: that fix was wrong. Rebuilt and
+  re-ran the exact same live `shodan-host` call and got the identical
+  `ModuleNotFoundError: No module named 'pkg_resources'` traceback,
+  even with `setuptools` now installed. Diagnosed live inside the
+  built image rather than guessing again: `pip show setuptools`
+  reported version `84.0.0`, and `python3 -c 'import pkg_resources'`
+  still failed the same way — `setuptools` has removed `pkg_resources`
+  entirely as of `81.0`, so a bare `pip install setuptools` installs
+  whatever the latest version is and doesn't actually restore the
+  module `shodan` needs. Fixed both Dockerfiles by pinning
+  `setuptools<81` instead of an unpinned install.
