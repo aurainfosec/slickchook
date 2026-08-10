@@ -358,9 +358,13 @@ Each run creates:
 - any files the container writes under `/artifacts`
 - a row in the PostgreSQL `plugin_runs` table
 
-Docker execution is handled by the separate `slickchook-runner` binary. See `RUNNER.md` for Docker group setup. Set `SLICKCHOOK_RUNNER=/path/to/slickchook-runner` if it is not next to the main `slickchook` binary.
-
-Docker runs with restrictive defaults: no network unless a manifest explicitly requests `bridge`, read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, a non-root user, process limits, memory limits, CPU limits, no stdin, and only the run artifact directory mounted writable at `/artifacts`. Manifests can declare narrowly scoped tmpfs mounts, such as `/tmp`, when a container needs temporary space.
+Docker execution is handled by the separate `slickchook-runner` binary. See
+`RUNNER.md`'s "Runner enforcement" section for the container hardening
+defaults (network, capabilities, read-only filesystem, resource limits)
+and Docker group setup; set `SLICKCHOOK_RUNNER=/path/to/slickchook-runner`
+if it is not next to the main `slickchook` binary. Manifests can declare
+narrowly scoped tmpfs mounts, such as `/tmp`, when a container needs
+temporary space.
 
 **A read-only root filesystem is the single most common cause of a plugin
 failing on its first real run.** Many CLI tools write a config file, cache,
@@ -386,13 +390,10 @@ only as large as the tool's actual config/cache footprint requires — these
 are tmpfs (RAM-backed), not disk, and count against the container's own
 resource limits.
 
-Plugin containers always run as UID 65534. Some tools restrict permissions on their own output files as they write them (for example, `testssl.sh` writing its JSON/HTML reports); left alone, that leaves the file unreadable by the Slickchook service's own user afterward, so `read_artifact` and any other host-side read would fail even though the file exists. The runner handles this automatically: after every plugin container exits (success, failure, or a timeout kill), it runs one more short-lived container as the same UID to make everything under `/artifacts` readable again, since only a file's owner (or root) may relax its own permissions. Plugin authors do not need to work around this themselves.
+Plugin containers always run as UID 65534. Some tools restrict permissions on their own output files as they write them (for example, `testssl.sh` writing its JSON/HTML reports); left alone, that leaves the file unreadable by the Slickchook service's own user afterward, so `read_artifact` and any other host-side read would fail even though the file exists. The runner fixes this automatically after every container exits — see SC-015 in `SECURITY_CONSIDERATIONS.md` for how. Plugin authors do not need to work around this themselves.
 
-The runner only allows these capability modes:
-
-- `cap_add = []`: default non-privileged mode
-- `cap_add = ["NET_RAW"]`: allows raw sockets for tools that genuinely need them
-
-Other capabilities are rejected by manifest validation. Do not use Docker `--privileged` for plugins.
+Manifest validation rejects any capability beyond the two RUNNER.md
+documents (default none, or `NET_RAW` for tools that genuinely need raw
+sockets). Do not use Docker `--privileged` for plugins.
 
 The included `testssl` plugin runs `drwetter/testssl.sh:latest` with `bridge` networking and writes `result.json` and `report.html` into the run artifact directory.

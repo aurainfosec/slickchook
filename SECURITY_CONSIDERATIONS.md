@@ -49,19 +49,12 @@ Last reviewed: 2026-08-07
   mechanism.
 - Plugins that need a persistent credential for an external service (for
   example, a Shodan API key) declare it in their manifest as `[[secrets]]`
-  — an environment variable name and description, never a per-call
-  `option`/`argument` a client can supply. Values are configured once,
-  server-wide, in `/etc/slickchook/plugin-secrets.env`, owned by
-  `root:slickchook` with mode `0640` and loaded via the same
-  `EnvironmentFile=` systemd mechanism as `postgres.env`. A configured
-  value is only ever forwarded into a container as `docker run --env NAME`
-  (the bare variable name, no `=value`), so it flows entirely through
-  inherited process environment at every hop and never appears in any
-  argv, log line, or `plugin_runs` record — unlike the client-supplied
-  credentials described in SC-005. `list_plugins` reports whether each
-  declared secret is currently configured as a boolean only, never the
-  value itself, and a run fails immediately, before any container is
-  created, if a required secret is missing.
+  rather than a per-call `option`/`argument` a client can supply, keeping
+  it out of the plaintext exposure described in SC-005. The value never
+  appears in any argv or log line — see RUNNER.md's "Configuring plugin
+  API keys and secrets" for the deployment mechanism, PLUGINS.md's
+  "Declaring required secrets" for the manifest schema, and SC-018 below
+  for the residual trust boundary once a value reaches a container.
 - Analyzer plugins (e.g. `osvscanner`, `screensanitize`) receive `/input` as a
   read-only mount by default; only a purpose-built fetcher may set
   `docker.input_read_only = false`, and that mount is still constrained to
@@ -393,55 +386,16 @@ any action is taken on what it finds. Never route raw `gowitness`
 screenshots directly into a context that can invoke tools; always go
 through `screensanitize` first.
 
-Until 2026-08-06, this mitigation never actually ran against a real
-screenshot: `gowitness` wrote its output to `/artifacts/screenshots`, while
-`screensanitize`'s `input_run_id` chaining only ever exposes the prior
-run's own `/input` staging directory — the convention `webfetch` uses to
-hand off fetched content, which `gowitness` was never wired into. A chained
-`screensanitize` run silently produced `"results": []` — zero images
-found, not an error — with nothing to indicate anything was wrong; verified
-live against a real `gowitness` capture before the fix. Fixed by having
-`gowitness` write its screenshot into `/input` instead (mirroring
-`webfetch`'s pattern), and by fixing `screensanitize`'s own re-encoded-image
-write, which was separately failing (it tried to write back into the
-correctly-read-only `/input` mount) and silently skipping the OCR/
-flag-detection code that ran after it in the same `try` block. OCR is
-currently a single pass at the image's native resolution, not multi-scale;
-treat detection of small or low-contrast injected text as best-effort until
-that's revisited.
-
-Separately, until this same fix, an MCP client had no real way to retrieve
-a screenshot's actual bytes at all: `list_run_artifacts` never recursed
-into subdirectories (so a screenshot nested under `screenshots/` was
-invisible to it), and `read_artifact` returned image bytes as a base64
-string embedded in a JSON text block rather than a proper MCP image
-content type. Both are now fixed: artifact listing recurses, and
-`read_artifact` returns a real `image` content block for image mime types.
-
-Fixing the two bugs above then exposed a *fourth*, previously invisible
-one, discovered live on 2026-08-07 the moment OCR actually ran for the
-first time: `tesseract` itself failed on every single screenshot, because
-Alpine's `tesseract-ocr` package ships the OCR engine with zero language
-data — `tesseract --list-langs` reported 0 available languages. Every
-prior run had swallowed this (`stderr=subprocess.DEVNULL`, a generic
-`except Exception` around it), so the mitigation had never produced a
-single real OCR result. Fixed by adding `tesseract-ocr-data-eng` to the
-image and no longer discarding `tesseract`'s actual stderr on failure, so
-a future OCR failure is diagnosable from `sanitized.json` directly instead
-of requiring another live debugging round-trip.
-
-A *fifth* bug turned up while independently re-verifying `read_artifact`
-against the raw screenshot itself (not just `screensanitize`'s output):
-it failed outright, unable to open the file. The post-run artifact
-permission fixup's exclusion of `/artifacts/input` (added 2026-08-06 to
-stop that always-empty directory producing a nuisance chmod error)
-excluded not just the directory entry but its entire contents (`find
--path`'s `*` matches `/` too), so a fetcher plugin's real output written
-there — `webfetch`, and now `gowitness` — never got the same
-host-readability fixup as every other plugin's output. This had been a
-latent bug for `webfetch` all along, just never noticed, since nothing
-had previously called `read_artifact` directly on a fetcher's own file.
-Fixed by excluding only the bare directory path, not its contents.
+Verified live and working end-to-end as of 2026-08-07 (real `gowitness`
+capture → `screensanitize` → populated OCR text and flags, plus a real
+`image` content block from `read_artifact`). Before that date, five
+compounding bugs across the capture → sanitize → retrieve chain meant
+this mitigation had never actually run against a real screenshot in
+production — see `CHANGELOG_2026-08-06.md` and `CHANGELOG_2026-08-07.md`
+for the incident narrative if this resurfaces. One forward-looking caveat
+survives the fix: OCR is currently a single pass at the image's native
+resolution, not multi-scale; treat detection of small or low-contrast
+injected text as best-effort until that's revisited.
 
 ### SC-018: Plugin-configured secrets are fully exposed to their own container
 

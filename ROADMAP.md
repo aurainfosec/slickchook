@@ -1,6 +1,6 @@
 # Slickchook roadmap
 
-Updated: 2026-07-16
+Updated: 2026-08-07
 
 This roadmap covers Slickchook server, runner, plugin, persistence, security,
 and deployment capabilities only. It does not contain findings or work items

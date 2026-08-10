@@ -179,10 +179,12 @@ sudo install -d -o root -g slickchook -m 0750 /var/lib/slickchook/plugins
 # directory, not just the plugin name. This preserves root ownership and
 # validates the manifest before it becomes live policy.
 sudo /usr/local/sbin/slickchook-plugin install /path/to/slickchook/plugins/nmap
+```
 
 Repeat for each plugin you want to enable. The installed copy is then visible
 under `/var/lib/slickchook/plugins`; do not edit that live tree directly.
 
+```bash
 sudo install -d -o slickchook -g slickchook -m 0750 \
   /var/lib/slickchook/artifacts
 ```
@@ -359,6 +361,10 @@ workaround.
 The runner reloads the plugin TOML and independently validates Docker policy. It
 rejects manifests outside the configured plugin root and artifact directories
 outside the configured artifact root.
+
+A manifest's `docker.network` must be `none` or `bridge` — nothing else
+validates. `bridge` grants outbound network access; use `none` for any
+plugin that doesn't genuinely need it.
 
 Current capability policy:
 
