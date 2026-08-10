@@ -1,6 +1,6 @@
 name = "wpscan"
 container = "slickchook-plugin/wpscan:local"
-description = "Runs WPScan against one authorized WordPress site to enumerate vulnerable plugins/themes and other WordPress-specific findings. Requires WPSCAN_API_TOKEN configured via [[secrets]] (see RUNNER.md's \"Configuring plugin API keys and secrets\") for WPScan's vulnerability database lookups - without a valid token, WPScan still enumerates plugins/themes/users but reports no CVE data at all, so a run without one configured is close to useless. enumerate defaults to vp,vt (vulnerable plugins/themes only) rather than a full enumeration, which is much noisier and slower; stealthy and throttle trade speed for a smaller footprint. force skips WPScan's own check for whether the target looks like WordPress - use only once fingerprinting (e.g. httpx's tech_detect) has already confirmed it. None of this plugin's flags have been confirmed against this image's real `wpscan --help` yet - verify before relying on anything beyond --url/--api-token."
+description = "Runs WPScan against one authorized WordPress site to enumerate every detected plugin/theme, flagging which ones WPScan's vulnerability database knows are vulnerable. Requires WPSCAN_API_TOKEN configured via [[secrets]] (see RUNNER.md's \"Configuring plugin API keys and secrets\") for that vulnerability data - without a valid token, WPScan still enumerates but reports no CVE data at all, so a run without one configured is close to useless. enumerate defaults to ap,at (all detected plugins/themes, each still flagged if WPScan's DB knows it's vulnerable) rather than vp,vt (vulnerable-only) - the full enumerated list is deliberately kept even for items WPScan doesn't flag, since its vulnerability database can lag behind a real CVE, especially for less widely used open-source plugins/themes; review the full list from the artifact, not just what got flagged. stealthy and throttle trade speed for a smaller footprint. force skips WPScan's own check for whether the target looks like WordPress - use only once fingerprinting (e.g. httpx's tech_detect) has already confirmed it. None of this plugin's flags have been confirmed against this image's real `wpscan --help` yet - verify before relying on anything beyond --url/--api-token."
 fixed_args = ["--no-update", "--format", "json"]
 
 [[secrets]]
@@ -16,10 +16,10 @@ flag = "--url"
 
 [[options]]
 name = "enumerate"
-description = "Comma-separated enumeration categories: vp (vulnerable plugins), vt (vulnerable themes), u (users), ap (all plugins), at (all themes), cb (config backups), dbe (db exports), m (media). Default vp,vt keeps this bounded to vulnerability findings; ap/at/u are much noisier and slower."
+description = "Comma-separated enumeration categories: vp (vulnerable plugins), vt (vulnerable themes), u (users), ap (all plugins), at (all themes), cb (config backups), dbe (db exports), m (media). Default ap,at enumerates every detected plugin/theme (not just ones already flagged vulnerable) so the full list can be reviewed manually too; narrow to vp,vt for a faster vulnerability-only pass, or add u for user enumeration."
 required = false
 flag = "--enumerate"
-default = "vp,vt"
+default = "ap,at"
 
 [[options]]
 name = "stealthy"
@@ -50,5 +50,5 @@ network = "bridge"
 memory = "1g"
 cpus = "1"
 pids_limit = 128
-timeout_seconds = 600
+timeout_seconds = 900
 tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.wpscan:rw,noexec,nosuid,nodev,size=64m,mode=1777"]
