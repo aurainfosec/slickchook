@@ -215,3 +215,19 @@
   in the same session).
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed `wpscan` running out of disk space mid-scan: `"scan_aborted":
+  "No space left on device @ rb_sys_fail_on_write -
+  /tmp/.cache/wpscan/cache/..."`, found on the very next real run after
+  the fix above got the database update itself working. WPScan caches
+  HTTP response bodies under `$HOME/.cache/wpscan` (`/tmp/.cache/wpscan`
+  here) during a scan — this one real `ap,at` run against
+  `wordpress.org` alone received 61.9 MB (`data_received`) before
+  hitting the 64m `/tmp` tmpfs limit. That same real run also proved
+  the separate `/.wpscan` tmpfs mount from the original manifest was
+  never used at all - WPScan's actual cache path is
+  `$HOME/.cache/wpscan`, not `$HOME/.wpscan`. Removed the unused mount
+  and raised `/tmp` to 512m (well within the container's existing 1g
+  memory budget - actual RSS in the same run was `used_memory: 188.7
+  MB`, plenty of headroom left).
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
