@@ -167,3 +167,12 @@
   `shodan-host` and `shodan-search` built and installed cleanly on the
   first attempt (their images build from `python:3.13-alpine` directly,
   with no inherited `USER` to work around).
+- Fixed `shodan-host` failing every real run: `ModuleNotFoundError: No
+  module named 'pkg_resources'`. The `shodan` PyPI package still
+  imports `pkg_resources` (from `setuptools`) at startup, but recent
+  `python:*-alpine` images no longer bundle `setuptools` by default.
+  Fixed both `shodan-host` and `shodan-search`'s Dockerfiles (identical
+  base image) by installing `setuptools` alongside `shodan`.
+  Found live: a real `shodan-host` call against `1.1.1.1`, with a
+  correctly configured `SHODAN_API_KEY`, failed with this exact
+  traceback before the fix.
