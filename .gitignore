@@ -28,10 +28,28 @@
 *.pfx
 *.crt
 *.secret
+# gitignore matching is case-sensitive, and this project's own convention
+# for secret files is SCREAMING_SNAKE_CASE (e.g. plugin-secrets.env's
+# `SHODAN_API_KEY=...` lines, see RUNNER.md) - each pattern below is
+# listed in both cases actually likely to appear as a filename.
 *credentials*
+*CREDENTIALS*
 *password*
+*PASSWORD*
 *passwd*
+*PASSWD*
 *secret*
+*SECRET*
+*apikey*
+*APIKEY*
+*api-key*
+*API-KEY*
+*api_key*
+*API_KEY*
+# plugin-secrets.env belongs on the deployment host at
+# /etc/slickchook/plugin-secrets.env (see RUNNER.md), never in this repo -
+# already caught by *.env/*secret* above, listed for clarity.
+plugin-secrets.env
 /etc/slickchook/
 
 # SSH, TLS, cloud, and local credential material
