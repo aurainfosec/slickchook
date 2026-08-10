@@ -104,3 +104,39 @@
   Verified for real: `cargo build --locked --release --bins` and
   `cargo test --lib` (12/12) clean; confirmed no leftover argv-ordering
   risk across every manifest touched in both this and the prior PR.
+- Added three new plugins: `wpscan`, `shodan-host`, and `shodan-search` —
+  each needs a real API token (`WPSCAN_API_TOKEN`, `SHODAN_API_KEY`)
+  configured via the `[[secrets]]` mechanism built earlier this week,
+  never as a per-call input.
+  - Neither WPScan nor the official `shodan` CLI reads its token from an
+    environment variable the way `[[secrets]]` injects one — both expect
+    it as a CLI flag (`--api-token`) or a one-time `init` step. Both
+    plugins wrap the real tool in a tiny shell entrypoint that reads the
+    injected env var and does that translation itself, so the token
+    still never passes through slickchook's own argv construction at
+    any point — documented as a general pattern in `PLUGINS.md`
+    ("Wrapping an upstream tool that wants the secret as a CLI flag")
+    for any future plugin with the same need.
+  - `shodan-host` and `shodan-search` are two separate plugins, not one
+    with a mode switch: `shodan host <ip>` is bounded to a single
+    authorized target the way every other plugin here is; `shodan
+    search <query>` queries Shodan's whole database and is not bounded
+    to any one target at all. Keeping them separate means the
+    unbounded one can't be reached for by accident, and `SKILL.md` now
+    calls out `shodan-search`'s scope risk explicitly (§0), the same
+    way it already does for `medusa`.
+  - `wpscan` defaults `enumerate` to `vp,vt` (vulnerable plugins/themes
+    only) rather than a full enumeration, matching this repo's general
+    bias toward bounded-by-default plugins; exposes WPScan's own real
+    `--stealthy`/`--random-user-agent`/`--throttle` options.
+  - None of the flags beyond `--url`/`--api-token`
+    (`wpscan`)/`host`/`search` (`shodan-*`) have been confirmed against
+    real `--help` output yet — neither image had ever been built on
+    this server. Said so explicitly in each manifest's description
+    rather than presenting unverified flags as confirmed, matching the
+    verification discipline used for every other plugin this week.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean; all three new manifests parse and validate via
+  `scan_plugins`; all three entrypoint scripts pass `sh -n` syntax
+  checking. Not yet built or run live — needs a real image build and a
+  configured API token before further verification is possible.

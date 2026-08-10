@@ -1,0 +1,54 @@
+name = "wpscan"
+container = "slickchook-plugin/wpscan:local"
+description = "Runs WPScan against one authorized WordPress site to enumerate vulnerable plugins/themes and other WordPress-specific findings. Requires WPSCAN_API_TOKEN configured via [[secrets]] (see RUNNER.md's \"Configuring plugin API keys and secrets\") for WPScan's vulnerability database lookups - without a valid token, WPScan still enumerates plugins/themes/users but reports no CVE data at all, so a run without one configured is close to useless. enumerate defaults to vp,vt (vulnerable plugins/themes only) rather than a full enumeration, which is much noisier and slower; stealthy and throttle trade speed for a smaller footprint. force skips WPScan's own check for whether the target looks like WordPress - use only once fingerprinting (e.g. httpx's tech_detect) has already confirmed it. None of this plugin's flags have been confirmed against this image's real `wpscan --help` yet - verify before relying on anything beyond --url/--api-token."
+fixed_args = ["--no-update", "--format", "json"]
+
+[[secrets]]
+env_var = "WPSCAN_API_TOKEN"
+description = "WPScan vulnerability database API token (from wpscan.com/register). Without it, WPScan still enumerates but cannot report which findings are actually vulnerable."
+required = true
+
+[[options]]
+name = "target"
+description = "Authorized WordPress site URL."
+required = true
+flag = "--url"
+
+[[options]]
+name = "enumerate"
+description = "Comma-separated enumeration categories: vp (vulnerable plugins), vt (vulnerable themes), u (users), ap (all plugins), at (all themes), cb (config backups), dbe (db exports), m (media). Default vp,vt keeps this bounded to vulnerability findings; ap/at/u are much noisier and slower."
+required = false
+flag = "--enumerate"
+default = "vp,vt"
+
+[[options]]
+name = "stealthy"
+description = "WPScan's own built-in low-footprint preset: random user-agent, reduced request rate, skips the more detectable checks."
+required = false
+flag = "--stealthy"
+
+[[options]]
+name = "random_user_agent"
+description = "Use a random user-agent per request, without WPScan's full stealthy preset."
+required = false
+flag = "--random-user-agent"
+
+[[options]]
+name = "throttle"
+description = "Milliseconds to wait between requests. Raise for a quieter, slower scan."
+required = false
+flag = "--throttle"
+
+[[options]]
+name = "force"
+description = "Skip WPScan's own check for whether the target actually looks like WordPress."
+required = false
+flag = "--force"
+
+[docker]
+network = "bridge"
+memory = "1g"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 600
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.wpscan:rw,noexec,nosuid,nodev,size=64m,mode=1777"]

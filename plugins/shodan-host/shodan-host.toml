@@ -1,0 +1,29 @@
+name = "shodan-host"
+container = "slickchook-plugin/shodan-host:local"
+description = "Looks up Shodan's own cached data for one authorized IP address via `shodan host` - passive, third-party-source-only, never contacts the target directly (same footprint class as amass/spiderfoot). Requires SHODAN_API_KEY configured via [[secrets]] (see RUNNER.md's \"Configuring plugin API keys and secrets\"). Deliberately separate from the shodan-search plugin: this one is bounded to a single authorized IP the way every other plugin here is bounded to one target, where shodan-search is not."
+fixed_args = ["host"]
+
+[[secrets]]
+env_var = "SHODAN_API_KEY"
+description = "Shodan member API key (from account.shodan.io)."
+required = true
+
+[[options]]
+name = "history"
+description = "Include all historical banners Shodan has recorded for this host, not just the most recent."
+required = false
+flag = "--history"
+
+[[arguments]]
+name = "target"
+description = "Authorized IP address to look up in Shodan's own database."
+required = true
+position = 1
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 60
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
