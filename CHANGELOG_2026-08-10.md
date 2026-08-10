@@ -140,3 +140,19 @@
   `scan_plugins`; all three entrypoint scripts pass `sh -n` syntax
   checking. Not yet built or run live — needs a real image build and a
   configured API token before further verification is possible.
+- Changed `wpscan`'s default `enumerate` from `vp,vt` (vulnerable
+  plugins/themes only) to `ap,at` (every detected plugin/theme, each
+  still flagged if WPScan's own database knows it's vulnerable) — WPScan
+  treats `ap`/`at` as supersets of `vp`/`vt`, not a separate mode, so
+  this doesn't lose the vulnerability flagging, it just also keeps
+  everything WPScan didn't flag. The point: WPScan's vulnerability
+  database can lag behind a real CVE, especially for a less widely used
+  open-source plugin/theme, so the full enumerated list is worth a
+  manual look even when nothing gets flagged. Raised `timeout_seconds`
+  from 600 to 900 to match the heavier default scope.
+  `SKILL.md` updated to match: instructs treating WPScan's own flagged
+  findings as headline results while still pulling the full enumerated
+  list from the artifact for manual follow-up, and the summary format
+  now reports both separately rather than only the flagged findings.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.

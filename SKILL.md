@@ -133,7 +133,14 @@ prioritize which hosts get attention:
   `wordlist` set to `/wordlist-cms.txt` instead of the generic default.
   For WordPress specifically, also run `wpscan` if configured — it needs
   a real API token to report which findings are actually vulnerable, not
-  just to enumerate.
+  just to enumerate. Its default `enumerate` (`ap,at`) lists every
+  detected plugin/theme, not just the ones it flags vulnerable: treat
+  the flagged ones as headline findings, but also pull the full
+  enumerated list from the artifact and look it over yourself — WPScan's
+  vulnerability database can lag behind a real CVE, especially for a
+  less widely used open-source plugin/theme where you can often check
+  the installed version against its own public changelog/repo directly.
+  Don't treat "WPScan didn't flag it" as "nothing to look at here."
 - API-shaped stack (REST/GraphQL paths, JSON-only responses, no rendered
   HTML) → use `feroxbuster`'s `/wordlist-api.txt`, and weight `kiterunner`
   and `graphqlcheck` over `gospider`'s HTML-crawling.
@@ -231,9 +238,12 @@ covering, per in-scope target:
   services, live web endpoints and detected technologies.
 - Findings: vulnerabilities (with severity, from `nuclei`), TLS/cert
   issues (`testssl`), exposed secrets (`trufflehog`), dependency
-  vulnerabilities (`osvscanner`), vulnerable plugins/themes (`wpscan`),
-  notable content-discovery/API-route results, and anything else that
-  stood out.
+  vulnerabilities (`osvscanner`), notable content-discovery/API-route
+  results, and anything else that stood out. For `wpscan`, report both
+  what it flagged vulnerable *and* the full enumerated plugin/theme list
+  separately — the latter is coverage, not a finding on its own, but
+  worth including so a human reviewer can follow up on anything WPScan's
+  database didn't catch.
 - Anything that failed, timed out, or was skipped, and why — an honest
   gap list matters as much as the findings themselves.
 - The full list of `run_id`s produced, so the artifact collection in §5 is
