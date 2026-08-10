@@ -1,7 +1,7 @@
 name = "spiderfoot"
 container = "slickchook-plugin/spiderfoot:local"
-description = "Runs bounded SpiderFoot passive OSINT collection for one authorized domain."
-fixed_args = ["-m", "sfp_dnsresolve,sfp_dnsraw"]
+description = "Runs a bounded, genuinely passive set of SpiderFoot modules for one authorized domain: DNS resolution (sfp_dnsresolve, sfp_dnsraw), certificate-transparency history (sfp_crt), historic Wayback Machine snapshots (sfp_archiveorg), and third-party tech-stack fingerprinting (sfp_builtwith). None of these query the target directly - all read from third-party sources, matching amass's passive posture. Deliberately excludes SpiderFoot's active modules (e.g. sfp_dnsbrute) and its many third-party-API-key-gated modules."
+fixed_args = ["-m", "sfp_dnsresolve,sfp_dnsraw,sfp_crt,sfp_archiveorg,sfp_builtwith"]
 
 [[options]]
 name = "target"

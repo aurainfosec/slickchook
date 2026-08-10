@@ -8,6 +8,18 @@ name = "target"
 description = "Authorized local path or repository URL."
 required = true
 
+[[options]]
+name = "only_verified"
+description = "Report only secrets TruffleHog actively confirmed are still live against their issuing service, dropping unverified regex matches. Sharply reduces false positives; recommended for most runs unless you specifically want the raw unverified matches too."
+required = false
+flag = "--only-verified"
+
+[[options]]
+name = "concurrency"
+description = "Concurrent worker goroutines. Higher scans a large target faster; lower is gentler on a resource-constrained target. Omit to use TruffleHog's own default."
+required = false
+flag = "--concurrency"
+
 [docker]
 network = "none"
 memory = "1g"

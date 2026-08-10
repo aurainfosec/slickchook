@@ -1,12 +1,26 @@
 name = "kiterunner"
 container = "slickchook-plugin/kiterunner:local"
-description = "Discovers API routes using the bounded Kiterunner small route corpus."
-fixed_args = ["scan", "-w", "/opt/kiterunner/routes-small.kite", "-o", "json", "-x", "5", "-j", "10"]
+description = "Discovers API routes using the bounded Kiterunner small route corpus. concurrency and jobs are tunable: lower both for a fragile target or quieter footprint, raise them for faster coverage of a large authorized scope."
+fixed_args = ["scan", "-w", "/opt/kiterunner/routes-small.kite", "-o", "json"]
 
 [[assets]]
 dest = "/opt/kiterunner/routes-small.kite"
 min_size_bytes = 1024
 description = "Small Kiterunner API route corpus downloaded at build time (no local source file to check — the Dockerfile fetches it from assetnote.io)."
+
+[[options]]
+name = "concurrency"
+description = "Concurrent connections per target host. Default 5."
+required = false
+flag = "-x"
+default = 5
+
+[[options]]
+name = "jobs"
+description = "Parallel route-discovery jobs. Default 10."
+required = false
+flag = "-j"
+default = 10
 
 [[arguments]]
 name = "target"

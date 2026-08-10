@@ -1,6 +1,6 @@
 name = "nmap"
 container = "instrumentisto/nmap:7.98-r2"
-description = "Runs bounded Nmap scans against one authorized target, including optional raw-packet and non-authenticated SSH NSE checks."
+description = "Runs bounded Nmap scans against one authorized target, including optional raw-packet checks, non-authenticated SSH NSE checks, and Nmap's own timing-template mechanism for trading speed against IDS/network evasion."
 fixed_args = ["-sT"]
 
 [[arguments]]
@@ -22,10 +22,10 @@ required = false
 flag = "-sV"
 
 [[options]]
-name = "fast_timing"
-description = "Use Nmap's T4 timing template."
+name = "timing_template"
+description = "Nmap timing template, 0-5. 0 (paranoid) and 1 (sneaky) space probes out for IDS/network evasion at real cost to speed; 4 (aggressive) and 5 (insane) are fast and noisy. Omit to use Nmap's own default (3, normal)."
 required = false
-flag = "-T4"
+flag = "-T"
 
 [[options]]
 name = "ssh_checks"

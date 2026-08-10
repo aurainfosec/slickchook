@@ -17,6 +17,9 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
 COPY --from=build /tmp/feroxbuster /usr/local/bin/feroxbuster
 COPY wordlist.txt /wordlist.txt
-RUN chmod 0644 /wordlist.txt && test -s /wordlist.txt
+COPY wordlist-cms.txt /wordlist-cms.txt
+COPY wordlist-api.txt /wordlist-api.txt
+RUN chmod 0644 /wordlist.txt /wordlist-cms.txt /wordlist-api.txt \
+    && test -s /wordlist.txt && test -s /wordlist-cms.txt && test -s /wordlist-api.txt
 ENV HOME=/tmp
 ENTRYPOINT ["/usr/local/bin/feroxbuster"]

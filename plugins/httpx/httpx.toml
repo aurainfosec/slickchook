@@ -1,6 +1,6 @@
 name = "httpx"
 container = "projectdiscovery/httpx:v1.9.0"
-description = "Runs the ProjectDiscovery HTTPX web probe (not the Python library) against one authorized target."
+description = "Runs the ProjectDiscovery HTTPX web probe (not the Python library) against one authorized target. tech_detect fingerprints the stack (Wappalyzer dataset) - use its result to steer follow-up plugin choices (e.g. feroxbuster's wordlist, whether graphqlcheck applies) rather than always taking generic defaults. httpx already randomizes its user-agent per request by default; threads/timeout/delay/rate_limit tune speed against footprint."
 fixed_args = ["-silent", "-disable-update-check"]
 
 [[options]]
@@ -29,9 +29,33 @@ flag = "-tech-detect"
 
 [[options]]
 name = "rate_limit"
-description = "Maximum requests per second."
+description = "Maximum requests per second. Default 150."
 required = false
 flag = "-rate-limit"
+
+[[options]]
+name = "threads"
+description = "Concurrent probing threads. Default 50; lower for a fragile target or quieter footprint."
+required = false
+flag = "-threads"
+
+[[options]]
+name = "timeout"
+description = "Per-request timeout in seconds. Default 10."
+required = false
+flag = "-timeout"
+
+[[options]]
+name = "delay"
+description = "Pause between each request, e.g. 200ms or 1s. Unset (no delay) by default; add one for a quieter, slower probe."
+required = false
+flag = "-delay"
+
+[[options]]
+name = "follow_redirects"
+description = "Follow HTTP redirects."
+required = false
+flag = "-follow-redirects"
 
 [docker]
 network = "bridge"

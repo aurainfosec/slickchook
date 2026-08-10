@@ -1,6 +1,6 @@
 name = "amass"
 container = "caffix/amass:latest"
-description = "Performs bounded passive asset and DNS enumeration for one authorized domain."
+description = "Performs bounded passive asset and DNS enumeration for one authorized domain. -passive means this never sends any traffic to the target itself - only to third-party OSINT sources (certificate transparency logs, public datasets, and similar) - making it one of the lowest-footprint tools in this fleet."
 fixed_args = ["enum", "-passive", "-norecursive"]
 
 [[options]]
