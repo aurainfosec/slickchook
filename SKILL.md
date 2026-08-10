@@ -107,12 +107,25 @@ sanity check, not a substitute for the above — see §3 for when (and when
 not) to bother running it at all.
 
 **Phase 3 — Web surface discovery (parallel per live HTTP(S) host)**
-Once Phase 2 confirms live web services, run `httpx` (tech detection,
-status/title probing) to prioritize which hosts are worth deeper attention,
-then in parallel: `feroxbuster` (content discovery), `kiterunner` (API
-route discovery), `gospider` (crawling), `graphqlcheck` (if a GraphQL
-endpoint is present), `websocat` (if a `ws://`/`wss://` endpoint is
-present).
+Once Phase 2 confirms live web services, run `httpx` with `tech_detect`
+enabled first — its fingerprint should steer what follows, not just
+prioritize which hosts get attention:
+
+- CMS fingerprinted (WordPress/Joomla/Drupal) → run `feroxbuster` with
+  `wordlist` set to `/wordlist-cms.txt` instead of the generic default.
+- API-shaped stack (REST/GraphQL paths, JSON-only responses, no rendered
+  HTML) → use `feroxbuster`'s `/wordlist-api.txt`, and weight `kiterunner`
+  and `graphqlcheck` over `gospider`'s HTML-crawling.
+- GraphQL endpoint present → run `graphqlcheck`; if its result shows
+  introspection disabled, re-run with `guess_fields` set rather than
+  treating a closed introspection query as the end of the check.
+- Otherwise, run the generic set in parallel: `feroxbuster` (content
+  discovery, default wordlist), `kiterunner` (API route discovery),
+  `gospider` (crawling), `websocat` (if a `ws://`/`wss://` endpoint is
+  present).
+
+Fingerprinting is cheap relative to the actions it steers — don't skip
+straight to generic defaults to save the one extra call.
 
 **Phase 4 — Assessment (parallel per target)**
 `nuclei` (template-based vulnerability scanning) and `testssl` (TLS/cert
@@ -164,6 +177,19 @@ built from.
   specifically calls for a raw ICMP reachability check. The same judgment
   applies generally: an action that mostly just risks tipping off
   monitoring without adding real information isn't "thorough," it's noise.
+- **Match concurrency/rate/timing options to what the target and
+  engagement actually need, not just the manifest default.** Several
+  plugins expose real tunables for exactly this:
+  `feroxbuster`/`kiterunner`/`httpx`/`nuclei` `threads`/`concurrency`/`jobs`,
+  `feroxbuster`/`httpx`/`nuclei`/`subfinder`/`dnsx` `rate_limit`,
+  `httpx`/`nuclei`/`gowitness` `timeout`/`delay`, `nmap`'s
+  `timing_template` (`0`-`1` trades speed for IDS/network evasion; `4`-`5`
+  is fast and noisy), and `testssl`'s own built-in `sneaky` and
+  `ids_friendly` evasion options. Turn these down for a small or fragile
+  authorized target, or when the engagement calls for a quieter footprint;
+  turn them up for a large scope under real time pressure. Check
+  `list_plugins` for which options a given plugin exposes rather than
+  assuming the manifest default is the only choice.
 - **Don't split a single tool's coverage across redundant calls when one
   call already covers it.** For example, `dnsx` supports every record type
   in one invocation via `all` rather than one call per record type
