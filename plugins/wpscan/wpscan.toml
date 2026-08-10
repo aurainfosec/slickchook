@@ -51,4 +51,4 @@ memory = "1g"
 cpus = "1"
 pids_limit = 128
 timeout_seconds = 900
-tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.wpscan:rw,noexec,nosuid,nodev,size=64m,mode=1777"]
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=512m"]
