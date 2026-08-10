@@ -231,3 +231,17 @@
   MB`, plenty of headroom left).
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed `wpscan` failing on real, larger targets after the previous two
+  fixes: verified live against `wordpress.org` with the tmpfs fix in
+  place, no disk-space error this time, but the run hit `plugin
+  \`wpscan\` exceeded timeout of 900 seconds` and was killed by
+  slickchook's own container timeout before finishing. This is a
+  direct consequence of the deliberate `ap,at` (enumerate-everything)
+  default added earlier — a full plugin/theme enumeration plus the
+  mandatory per-run database update can genuinely take well over 15
+  minutes on a site with a large footprint. Raised `timeout_seconds`
+  from 900 to 2700 (45 minutes) and documented in the description that
+  narrowing `enumerate` (e.g. to `vp,vt`) is the way to get a faster
+  run, not lowering this timeout.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
