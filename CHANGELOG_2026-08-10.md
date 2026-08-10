@@ -67,4 +67,40 @@
   re-checked argv ordering for every touched manifest (fixed_args →
   options → arguments) against each tool's actual CLI syntax, after
   finding and fixing a real ordering bug in `graphqlcheck`'s manifest
-  during this same pass (see the companion changelog entry).
+  during this same pass (see the next entry, below).
+- Added fingerprint-driven tool selection to `SKILL.md`, and a
+  wordlist-based field-guessing fallback to `graphqlcheck`, closing out
+  the rest of the plugin capability audit follow-up:
+  - `SKILL.md`'s Phase 3 now explicitly steers tool choice off `httpx`'s
+    `tech_detect` fingerprint instead of just using it to prioritize
+    which hosts get attention: a CMS fingerprint selects
+    `feroxbuster`'s new `/wordlist-cms.txt`, an API-shaped stack selects
+    `/wordlist-api.txt` and weights `kiterunner`/`graphqlcheck` over
+    `gospider`, and a GraphQL endpoint with introspection disabled
+    triggers a `graphqlcheck` re-run with the new `guess_fields` option
+    below rather than treating a closed introspection query as the end
+    of the check.
+  - `graphqlcheck` gained a `guess_fields` mode: a new bundled
+    55-entry wordlist of common GraphQL query/mutation/type names,
+    probed one at a time against the root `Query` type and classified
+    by error-message differencing (a field that errors "unknown field"
+    doesn't exist; one that errors any other way, e.g. missing
+    arguments, or that succeeds outright, likely does) — the standard
+    technique real tools like clairvoyance/graphql-cop use, for when
+    introspection itself is disabled. Smoke-tested the classification
+    regex locally against realistic GraphQL error-message shapes before
+    shipping.
+  - While building this, caught and fixed a real bug in `graphqlcheck`'s
+    own manifest introduced earlier in the same editing pass: adding
+    `guess_fields` as a declared option without also converting
+    `target` from a positional `[[arguments]]` entry to a flagged
+    `[[options]]` entry would have rendered as `--url --guess-fields
+    <target>` — `--guess-fields` would have been consumed as `--url`'s
+    value, breaking every call. Manifests render `fixed_args` → options
+    → arguments in that fixed order, so any option declared between a
+    fixed_args flag and its intended value breaks that flag; every
+    other manifest touched in this and the prior PR was re-checked
+    against this exact failure mode before either was shipped.
+  Verified for real: `cargo build --locked --release --bins` and
+  `cargo test --lib` (12/12) clean; confirmed no leftover argv-ordering
+  risk across every manifest touched in both this and the prior PR.

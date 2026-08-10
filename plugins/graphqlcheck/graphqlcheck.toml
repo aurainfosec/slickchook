@@ -1,13 +1,25 @@
 name = "graphqlcheck"
 container = "slickchook-plugin/graphqlcheck:local"
-description = "Runs bounded GraphQL endpoint and introspection checks against one authorized URL."
-fixed_args = ["--url"]
+description = "Runs one bounded introspection query against an authorized GraphQL endpoint and reports whether introspection is enabled (not a full GraphQL security scanner - no batch queries, no known-vulnerability checks). When introspection is disabled, optionally set guess_fields to probe a small bundled wordlist of common query/mutation names via error-message differencing - a field that errors 'unknown field' doesn't exist; one that errors any other way (e.g. missing arguments) likely does. Heuristic and best-effort, not confirmed schema."
+fixed_args = []
 
-[[arguments]]
+[[assets]]
+source = "fields.txt"
+dest = "/fields.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist of common GraphQL query/mutation/type names, used only when guess_fields is set."
+
+[[options]]
 name = "target"
 description = "Authorized GraphQL endpoint URL."
 required = true
-position = 1
+flag = "--url"
+
+[[options]]
+name = "guess_fields"
+description = "When introspection is disabled, probe the bundled fields.txt wordlist against the root Query type via error-message differencing. Only useful as a fallback when the introspection query above is refused; adds one small request per wordlist entry."
+required = false
+flag = "--guess-fields"
 
 [docker]
 network = "bridge"
