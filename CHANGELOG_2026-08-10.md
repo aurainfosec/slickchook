@@ -156,3 +156,14 @@
   now reports both separately rather than only the flagged findings.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed `wpscan`'s first real build, which failed outright: `chmod:
+  /usr/local/bin/slickchook-wpscan-entrypoint.sh: Operation not
+  permitted`. `wpscanteam/wpscan`'s own Dockerfile sets a non-root
+  `USER` before its final layer, which carries over into a derived
+  Dockerfile that doesn't override it; `COPY` always writes as
+  `root:root` regardless of the current effective user, so the
+  inherited non-root user couldn't `chmod` a file it didn't own. Fixed
+  by adding an explicit `USER root` before the `COPY`/`chmod` steps.
+  `shodan-host` and `shodan-search` built and installed cleanly on the
+  first attempt (their images build from `python:3.13-alpine` directly,
+  with no inherited `USER` to work around).
