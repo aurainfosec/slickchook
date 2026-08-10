@@ -125,6 +125,37 @@ deployment-side mechanism, and SECURITY_CONSIDERATIONS.md's SC-018 for the
 residual trust boundary: once inside the container, the value is exposed to
 that container exactly as fully as the plugin's own code.
 
+### Wrapping an upstream tool that wants the secret as a CLI flag
+
+`[[secrets]]` only gets a value as far as an environment variable inside
+the container — it doesn't know how a specific tool expects to receive a
+credential. Some tools read an env var directly; many don't, and expect
+`--api-token <value>` (or similar) on the command line, or a one-time
+`init` step. For those, wrap the real binary with a tiny shell entrypoint
+that reads the env var and does the translation itself, so the value still
+never passes through slickchook's own argv construction — only ever
+inside the container, at the one point it's actually needed:
+
+```dockerfile
+FROM realtool/realtool:latest
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0555 /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+```
+
+```sh
+#!/bin/sh
+set -eu
+: "${REALTOOL_API_TOKEN:?REALTOOL_API_TOKEN must be configured}"
+exec realtool --api-token "$REALTOOL_API_TOKEN" "$@"
+```
+
+`wpscan` and `shodan-host`/`shodan-search` (below) both use this pattern —
+`wpscan`'s Dockerfile builds `FROM wpscanteam/wpscan:latest` and only adds
+the wrapper; the `shodan-*` plugins build a small image from scratch
+(`shodan`'s own CLI has no official image) and use `shodan init` as the
+one-time credential step instead of a per-call flag.
+
 ## Custom (first-party) plugins
 
 Most bundled plugins are thin manifests around an existing, independently
@@ -163,6 +194,15 @@ Know which is which before relying on one for engagement coverage:
   built-in `ping`, not a dedicated network-tools image. It exists as a
   minimal, focused verification of the runner's `NET_RAW` capability
   policy, not as a general reachability/latency tool.
+
+A related but distinct category: `wpscan` and `shodan-host`/`shodan-search`
+run the real upstream tool (WPScan, the official `shodan` CLI) with no
+reimplemented logic of their own — their capabilities and limitations are
+whatever the real tool's are — but wrap it in a thin entrypoint script
+purely to translate an injected `[[secrets]]` value into the CLI flag or
+`init` step that tool expects (see "Wrapping an upstream tool that wants
+the secret as a CLI flag" above). Don't confuse this wrapper with a
+bespoke reimplementation; it adds nothing to what the real tool does.
 
 If a plugin isn't in the list above, treat its manifest `description` and
 underlying `container` image as accurately reflecting a real, independently

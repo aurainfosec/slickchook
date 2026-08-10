@@ -1,0 +1,37 @@
+name = "shodan-search"
+container = "slickchook-plugin/shodan-search:local"
+description = "Searches Shodan's whole internet-scan database via `shodan search` - NOT bounded to a single authorized target the way every other plugin here is. `query` must be scoped to the authorized engagement (e.g. `hostname:example.com`, `org:\"Example Corp\"`, `net:203.0.113.0/24`) - a bare keyword query returns hosts anywhere on the internet with no connection to the engagement, and any such result must be disregarded as out of scope, not investigated further. Passive - never contacts anything directly, only queries Shodan's own cached data. Requires SHODAN_API_KEY configured via [[secrets]] (see RUNNER.md's \"Configuring plugin API keys and secrets\"). limit caps result count; verify the exact flag name against this image's real `shodan search --help` before relying on it, along with every other flag here - none have been confirmed against live output yet."
+fixed_args = ["search"]
+
+[[secrets]]
+env_var = "SHODAN_API_KEY"
+description = "Shodan member API key (from account.shodan.io)."
+required = true
+
+[[options]]
+name = "fields"
+description = "Comma-separated fields to include per result, for example ip_str,port,org,hostnames."
+required = false
+flag = "--fields"
+default = "ip_str,port,org,hostnames"
+
+[[options]]
+name = "limit"
+description = "Maximum number of results to return. Keep this bounded - a broad query without a limit can return a very large result set."
+required = false
+flag = "--limit"
+default = 10
+
+[[arguments]]
+name = "query"
+description = "Shodan search query, scoped to the authorized engagement (e.g. hostname:example.com, org:\"Example Corp\", net:203.0.113.0/24). Never a bare keyword unrelated to a specific authorized asset."
+required = true
+position = 1
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 60
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
