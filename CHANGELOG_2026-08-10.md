@@ -245,3 +245,22 @@
   run, not lowering this timeout.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed `wpscan`'s full `ap,at` enumeration genuinely failing to finish
+  even within the 2700-second timeout raised in the previous entry:
+  live-verified against a real production WordPress site with a
+  non-trivial plugin/theme footprint, the run still hit `plugin
+  \`wpscan\` exceeded timeout of 2700 seconds` with zero JSON output
+  produced. Root cause, confirmed against this image's real
+  `wpscan --help` output (v4.1.0) rather than guessed: `ap`/`at` mode
+  brute-forces WPScan's entire known plugin/theme slug list against
+  the target instead of only what's detected, and WPScan's own
+  concurrency default is only 5 threads (`-t`/`--max-threads`) - far
+  too low to finish that volume of requests in time. Added a
+  `max_threads` option (default 10, double WPScan's own default) to
+  raise concurrency for a realistic chance of finishing; documented
+  that it has no effect when `throttle` is also set, since `throttle`
+  forces WPScan's internal max-threads to 1 regardless. Also replaced
+  the manifest's stale "flags not yet verified against real --help"
+  disclaimer, since they now have been.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
