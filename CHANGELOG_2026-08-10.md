@@ -187,3 +187,31 @@
   whatever the latest version is and doesn't actually restore the
   module `shodan` needs. Fixed both Dockerfiles by pinning
   `setuptools<81` instead of an unpinned install.
+  Re-verified live after this fix: `shodan-host` against `1.1.1.1`
+  returned real Shodan data (hostnames, open ports, cert info) with
+  only the expected `pkg_resources` deprecation warning, no error.
+  `shodan-search` against a scoped query (`hostname:cloudflare.com`)
+  correctly built its argv and reached Shodan's API, which itself
+  returned `403 Forbidden` — most likely an account-tier restriction
+  on the `search` method specifically (it typically costs query
+  credits `host` lookups don't), not a plugin bug, since the same key
+  worked fine for `shodan-host` moments earlier.
+- Fixed `wpscan` failing every run: `"scan_aborted": "Update
+  required, you can not run a scan if a database file is missing."`
+  `--no-update` was carried over from `nuclei`'s
+  `-disable-update-check`/`subfinder`'s `-disable-update-check`
+  pattern on the assumption it meant "skip a redundant check" - for
+  WPScan it actually means "don't even initialize the database," and
+  every run here is a fresh, ephemeral container with no persisted
+  state, so there's never an existing database to skip updating.
+  Removed `--no-update` from `fixed_args`; WPScan now updates its own
+  fingerprint database over the network at the start of every run.
+  Documented the resulting network-dependent startup cost in the
+  description, and noted baking the database into the image at build
+  time as a possible future optimization, not yet attempted (build-time
+  baking would need to land in a path outside any tmpfs mount, since a
+  runtime tmpfs mount shadows whatever was baked into that same path at
+  build time - not attempted here to avoid guessing wrong a second time
+  in the same session).
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
