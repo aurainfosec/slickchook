@@ -75,6 +75,18 @@ description = "Query all supported DNS record types (A, AAAA, CNAME, NS, TXT, SR
 required = false
 flag = "-all"
 
+[[options]]
+name = "threads"
+description = "Concurrent resolver threads. dnsx's own default is 100; lower for a quieter, slower resolution pass."
+required = false
+flag = "-t"
+
+[[options]]
+name = "rate_limit"
+description = "Maximum DNS requests per second. Disabled (unlimited) by default; set this to pace out queries for a quieter footprint."
+required = false
+flag = "-rl"
+
 [docker]
 network = "bridge"
 memory = "256m"

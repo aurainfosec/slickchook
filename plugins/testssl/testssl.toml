@@ -1,6 +1,6 @@
 name = "testssl"
 container = "drwetter/testssl.sh:latest"
-description = "Runs testssl.sh against a single TLS endpoint. Provide target as a hostname, IP address, URL, or host:port value. The MCP response includes a bounded stdout/stderr preview plus artifact paths. Full stdout, stderr, a pretty JSON report, and an HTML report are stored under the run artifact directory."
+description = "Runs testssl.sh against a single TLS endpoint. Provide target as a hostname, IP address, URL, or host:port value. The MCP response includes a bounded stdout/stderr preview plus artifact paths. Full stdout, stderr, a pretty JSON report, and an HTML report are stored under the run artifact directory. vulnerable_only narrows the full ~900s battery to just the vulnerability checks; sneaky and ids_friendly are testssl's own built-in network-evasion options."
 fixed_args = [
   "--warnings",
   "batch",
@@ -24,6 +24,30 @@ name = "fast"
 description = "Run a faster scan with fewer checks."
 required = false
 flag = "--fast"
+
+[[options]]
+name = "vulnerable_only"
+description = "Run only the known-vulnerability checks (Heartbleed, ROBOT, POODLE, and similar), skipping the full protocol/cipher/config battery. Much faster when only vulnerability findings matter."
+required = false
+flag = "--vulnerable"
+
+[[options]]
+name = "sneaky"
+description = "testssl's own built-in evasion option: leave less trace in the target's logs by using a generic user-agent and referer instead of testssl's own identifiable strings."
+required = false
+flag = "--sneaky"
+
+[[options]]
+name = "ids_friendly"
+description = "Skip the small number of vulnerability checks most likely to trip an IDS into blocking the scanning IP."
+required = false
+flag = "--ids-friendly"
+
+[[options]]
+name = "user_agent"
+description = "Set a custom user-agent instead of testssl's own default string."
+required = false
+flag = "--user-agent"
 
 [docker]
 network = "bridge"

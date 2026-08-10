@@ -1,19 +1,58 @@
 name = "feroxbuster"
 container = "slickchook-plugin/feroxbuster:local"
-description = "Performs a bounded, non-recursive Feroxbuster content-discovery check against one explicitly authorized URL using the package's small reviewable wordlist."
-fixed_args = ["--silent", "--no-recursion", "--threads", "10", "--rate-limit", "20", "--wordlist", "/wordlist.txt"]
+description = "Performs a bounded, non-recursive Feroxbuster content-discovery check against one explicitly authorized URL. Bundles three small reviewable wordlists selectable via `wordlist` — pick based on what fingerprinting (e.g. httpx's tech_detect) found: /wordlist.txt (generic, default), /wordlist-cms.txt (WordPress/Joomla/Drupal paths), /wordlist-api.txt (REST/GraphQL/API path segments). threads and rate_limit are tunable: lower both for a fragile target or a quieter footprint, raise them for faster coverage of a large authorized scope."
+fixed_args = ["--silent", "--no-recursion"]
 
 [[assets]]
 source = "wordlist.txt"
 dest = "/wordlist.txt"
 min_size_bytes = 50
-description = "Small reviewed content-discovery wordlist bundled into the image."
+description = "Small reviewed generic content-discovery wordlist bundled into the image. Default wordlist."
+
+[[assets]]
+source = "wordlist-cms.txt"
+dest = "/wordlist-cms.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist of common WordPress/Joomla/Drupal paths, for use once fingerprinting identifies one of those CMSes."
+
+[[assets]]
+source = "wordlist-api.txt"
+dest = "/wordlist-api.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist of common REST/GraphQL/API path segments, for use once fingerprinting identifies an API-shaped target."
 
 [[options]]
 name = "target"
 description = "Authorized HTTP or HTTPS base URL."
 required = true
 flag = "--url"
+
+[[options]]
+name = "wordlist"
+description = "Which bundled wordlist to use: /wordlist.txt (generic, default), /wordlist-cms.txt (WordPress/Joomla/Drupal), or /wordlist-api.txt (REST/GraphQL/API). Choose based on prior fingerprinting rather than always taking the default."
+required = false
+flag = "--wordlist"
+default = "/wordlist.txt"
+
+[[options]]
+name = "threads"
+description = "Concurrent worker threads. Lower for a fragile or rate-limited target; raise for faster coverage of a large authorized scope. Default 10."
+required = false
+flag = "--threads"
+default = 10
+
+[[options]]
+name = "rate_limit"
+description = "Maximum requests per second across all threads. Lower is quieter and less likely to trip a WAF rate-based rule. Default 20."
+required = false
+flag = "--rate-limit"
+default = 20
+
+[[options]]
+name = "user_agent"
+description = "Override Feroxbuster's default user-agent string, which is a common WAF/bot-detection signature on its own."
+required = false
+flag = "--user-agent"
 
 [[options]]
 name = "extensions"

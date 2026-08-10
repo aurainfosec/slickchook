@@ -23,9 +23,27 @@ flag = "-tags"
 
 [[options]]
 name = "rate_limit"
-description = "Maximum requests per second."
+description = "Maximum requests per second. Default 150."
 required = false
 flag = "-rate-limit"
+
+[[options]]
+name = "concurrency"
+description = "Maximum templates executed in parallel. Default 25; lower for a fragile target or quieter footprint."
+required = false
+flag = "-concurrency"
+
+[[options]]
+name = "timeout"
+description = "Per-request timeout in seconds. Default 10."
+required = false
+flag = "-timeout"
+
+[[options]]
+name = "retries"
+description = "Retries for a failed request. Default 1."
+required = false
+flag = "-retries"
 
 [docker]
 network = "bridge"

@@ -3,6 +3,12 @@ container = "slickchook-plugin/webfetch:local"
 description = "Fetches one explicitly authorized HTTP(S) URL into the per-run input staging directory for offline analysis."
 fixed_args = ["-q", "--no-check-certificate", "--timeout=20", "--tries=1", "-O", "/input/index.html"]
 
+[[options]]
+name = "user_agent"
+description = "Override wget's default user-agent string for this fetch, which otherwise identifies itself plainly as wget/<version> on the wire."
+required = false
+flag = "--user-agent"
+
 [[arguments]]
 name = "target"
 description = "Authorized HTTP or HTTPS URL to fetch."
