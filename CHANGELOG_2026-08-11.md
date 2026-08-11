@@ -27,3 +27,31 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live verification against a real strict MCP
   client still pending the redeploy above.
+
+- Fixed a packaging bug that broke every plugin run host-wide: after the
+  binary redeploy above (the first real dpkg-level reinstall in a long
+  time - previous redeploys this session only touched plugin Docker
+  images via `slickchook-plugin install`, never the core package), a
+  connected client reported all 12 in-flight jobs across 8 different
+  plugins failing identically with `permission denied while trying to
+  connect to the docker API at unix:///var/run/docker.sock`.
+  `deploy/slickchook.service` documents the intended design in its own
+  comment - "The runner relies on its setgid bit to obtain Docker
+  socket access" - so only `slickchook-runner` can reach the Docker
+  daemon, not the main service user, a deliberate least-privilege
+  boundary. But `scripts/build-deb.sh` never actually applied that:
+  `slickchook-runner` was installed with plain `install -m 0755`
+  (root:root) and nothing in `postinst` ever set `docker` group
+  ownership or the setgid bit. Someone had applied that by hand on this
+  host at some point outside of packaging entirely - consistent with
+  dpkg's own record showing this host's last tracked install as
+  version 0.1.0, far older than the 0.3.0 binary that had actually been
+  running. Reinstalling the package overwrote that manual fix by
+  replacing the binary file outright.
+  Added `chgrp docker` + `chmod 2755` on `/opt/slickchook/slickchook-runner`
+  to `postinst`, applied unconditionally on every install/upgrade (not
+  just guarded on first-install) since installing the binary file fresh
+  resets both every time.
+  Verified: `bash -n scripts/build-deb.sh` and a full `./scripts/build-deb.sh`
+  rebuild, confirming the fix is present in the built package's
+  extracted `postinst` (`dpkg-deb -e`) before shipping it.
