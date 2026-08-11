@@ -16,7 +16,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RunPluginRequest {
     plugin: String,
-    input: serde_json::Value,
+    input: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
     input_run_id: Option<String>,
 }
@@ -81,7 +81,7 @@ impl ReconServer {
     ) -> Result<String, rmcp::ErrorData> {
         let result = self
             .plugin_manager
-            .run_plugin_with_input(&plugin, input, input_run_id.as_deref())
+            .run_plugin_with_input(&plugin, serde_json::Value::Object(input), input_run_id.as_deref())
             .await
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         serde_json::to_string_pretty(&result)
@@ -103,7 +103,7 @@ impl ReconServer {
         let id = job_id.clone();
         let handle = tokio::spawn(async move {
             let result = manager
-                .run_plugin_with_input(&plugin, input, input_run_id.as_deref())
+                .run_plugin_with_input(&plugin, serde_json::Value::Object(input), input_run_id.as_deref())
                 .await
                 .map(|value| serde_json::to_string_pretty(&value).unwrap_or_else(|e| e.to_string()))
                 .unwrap_or_else(|e| format!("{{\"error\":{}}}", serde_json::json!(e.to_string())));
