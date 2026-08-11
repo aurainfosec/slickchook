@@ -1,6 +1,6 @@
 name = "nmap"
 container = "instrumentisto/nmap:7.98-r2"
-description = "Runs bounded Nmap scans against one authorized target, including optional raw-packet checks, non-authenticated SSH NSE checks, and Nmap's own timing-template mechanism for trading speed against IDS/network evasion."
+description = "Runs bounded Nmap scans against one authorized target, including optional raw-packet checks, NSE scripts, and Nmap's own timing-template mechanism for trading speed against IDS/network evasion. Uses the stock instrumentisto/nmap image with no custom Dockerfile, so Nmap's own full built-in script library ships under /usr/share/nmap/scripts already - any of Nmap's own script/category names work with nse_scripts out of the box, no separate install step needed. Nmap validates script names itself at scan time and errors clearly on an unknown one; slickchook's install step never runs the container, so a typo'd script name can't be caught before a real scan."
 fixed_args = ["-sT"]
 
 [[arguments]]
@@ -28,11 +28,17 @@ required = false
 flag = "-T"
 
 [[options]]
-name = "ssh_checks"
-description = "Run non-authenticated SSH algorithm and authentication-method enumeration scripts."
+name = "nse_scripts"
+description = "Comma-separated NSE script names and/or categories to run, exactly as Nmap's own --script accepts them (e.g. vuln, default, http-title, ssh2-enum-algos, a specific CVE script). Defaults to non-authenticated SSH enumeration only (ssh2-enum-algos,ssh-auth-methods); broader categories like vuln or default run many more scripts and are much noisier/slower - scope to what the engagement actually calls for. Nmap itself validates script names at scan time - an unknown name errors out that run rather than being caught earlier."
 required = false
 flag = "--script"
 default = "ssh2-enum-algos,ssh-auth-methods"
+
+[[options]]
+name = "no_ping"
+description = "Skip Nmap's host discovery and treat the target as online (-Pn). Use when ICMP/host-discovery probes are blocked or filtered - a common real-world condition - since without this, Nmap can wrongly report a genuinely live host as down and skip scanning it entirely."
+required = false
+flag = "-Pn"
 
 [docker]
 network = "bridge"
