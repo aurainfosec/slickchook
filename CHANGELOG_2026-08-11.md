@@ -55,3 +55,28 @@
   Verified: `bash -n scripts/build-deb.sh` and a full `./scripts/build-deb.sh`
   rebuild, confirming the fix is present in the built package's
   extracted `postinst` (`dpkg-deb -e`) before shipping it.
+
+- Added `-Pn` support to `nmap` (new `no_ping` option) and broadened
+  its NSE script support per a connected AI client's feedback while
+  testing real scans. The client reported two gaps: no way to skip
+  Nmap's host discovery when ICMP/host-discovery probes are filtered
+  (a common real-world condition that otherwise makes Nmap wrongly
+  report a live host as down and skip it entirely), and no way to run
+  NSE scripts beyond the existing hardcoded SSH-only preset.
+  Renamed `ssh_checks` to `nse_scripts`, keeping the same default
+  (`ssh2-enum-algos,ssh-auth-methods`) so existing behavior is
+  unchanged by default, but now accepting any of Nmap's own
+  script/category names (vuln, default, http-title, specific CVE
+  scripts, etc.) - this plugin uses the stock instrumentisto/nmap image
+  with no custom Dockerfile, so Nmap's full built-in script library
+  already ships under /usr/share/nmap/scripts; no bundling or install
+  step needed for any of Nmap's own stock scripts. Documented that
+  Nmap validates script names itself at scan time (errors clearly on
+  an unknown one), since slickchook's install step never runs the
+  container and so can't catch a typo'd script name any earlier.
+  Updated SKILL.md's now-renamed `ssh_checks` reference and added
+  guidance to only reach for broader NSE categories when the
+  engagement calls for it, since they're much noisier/slower than the
+  SSH-only default.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.

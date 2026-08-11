@@ -119,8 +119,11 @@ and `naabu` (unprivileged TCP CONNECT port discovery) in parallel across
 hosts; if `shodan-host` is configured, run it per resolved IP too — a
 passive, no-touch data source you're already positioned to use once you
 have the IPs. Follow up open ports of interest with `nmap` for deeper service
-detection (only enable `ssh_checks`/raw-packet options if the engagement
-specifically calls for them). `rawping` is a lightweight reachability
+detection (only enable `nse_scripts` categories beyond the SSH-only default,
+or raw-packet options, if the engagement specifically calls for them - a
+broader category like `vuln` or `default` is much noisier/slower than the
+default). Add `no_ping` if the target's host discovery/ICMP is known or
+suspected to be filtered. `rawping` is a lightweight reachability
 sanity check, not a substitute for the above — see §3 for when (and when
 not) to bother running it at all.
 
