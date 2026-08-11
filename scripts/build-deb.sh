@@ -60,6 +60,14 @@ id slickchook >/dev/null 2>&1 || adduser --system --ingroup slickchook --home /v
 install -d -o root -g root -m 0755 /opt/slickchook
 install -d -o root -g slickchook -m 0750 /etc/slickchook /var/lib/slickchook/plugins
 install -d -o slickchook -g slickchook -m 0750 /var/lib/slickchook/artifacts
+# Only slickchook-runner talks to the Docker daemon - the main service user
+# is never added to the docker group. Setgid + docker group ownership on
+# this one binary is what grants that, scoped to just the runner process
+# rather than the whole service. Re-applied on every install/upgrade since
+# installing the binary file fresh (below, in the .deb's data.tar) resets
+# both back to plain root:root 0755.
+chgrp docker /opt/slickchook/slickchook-runner
+chmod 2755 /opt/slickchook/slickchook-runner
 if [ ! -e /etc/slickchook/slickchook.toml ]; then printf '%s\n' 'bind_addr = "127.0.0.1:8080"' > /etc/slickchook/slickchook.toml; fi
 chown root:slickchook /etc/slickchook/slickchook.toml
 chmod 0640 /etc/slickchook/slickchook.toml
