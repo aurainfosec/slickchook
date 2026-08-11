@@ -264,3 +264,27 @@
   disclaimer, since they now have been.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed `wpscan`'s full `ap,at` enumeration still not finishing after the
+  previous max_threads fix: live-verified against `wordpress.org` with
+  max_threads=10, and it hit `plugin \`wpscan\` exceeded timeout of 2700
+  seconds` again - the timestamps line up exactly (job started, 2700s
+  later the timeout fired), so this is a real, confirmed repeat of the
+  same failure mode, not a fluke. Two moderate increases in a row (5->10
+  threads, 900s->2700s timeout) weren't enough, so rather than guess a
+  third small increment, jumped max_threads to 40 (8x WPScan's own
+  default) - a deliberately large jump.
+  Also discovered, while investigating why an async plugin_status check
+  reported "unknown job" for a job that was definitely still running
+  (confirmed via systemctl status showing the service PID never
+  changed): start_plugin/plugin_status/plugin_cancel job tracking is
+  scoped per SSE connection, not shared service-wide - `main.rs`'s
+  `SseServer::serve(...).with_service(move || ReconServer::new(...))`
+  constructs a brand new server instance (with a fresh, empty jobs map)
+  for every new connection. Checking job status from a separate
+  connection than the one that started it can never work as currently
+  wired. Not fixed in this change - noted here since it affects how any
+  future live verification of async jobs must be done (single
+  persistent connection for the whole start+poll sequence), not a
+  wpscan-specific issue.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
