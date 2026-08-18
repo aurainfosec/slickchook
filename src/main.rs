@@ -34,6 +34,11 @@ struct ListRunsByTargetRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct TargetRequest {
+    target: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RunIdRequest {
     run_id: String,
 }
@@ -195,6 +200,28 @@ impl ReconServer {
             .await
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         serde_json::to_string_pretty(&runs)
+            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))
+    }
+
+    #[tool(
+        description = "Permanently deletes every recorded run and its artifact files for one exact target match. \
+                           Irreversible. Only call this after the connected human has explicitly confirmed they \
+                           want prior runs for this target deleted - for example, when starting a fresh engagement \
+                           against a target that already has scan history. Never call this automatically or \
+                           silently. Call list_runs_by_target first to show what already exists so the human can \
+                           decide: delete it, keep it, or just continue (leave it untouched - new runs simply add \
+                           alongside the existing ones either way, nothing needs to be deleted to keep working)."
+    )]
+    async fn purge_runs_by_target(
+        &self,
+        Parameters(TargetRequest { target }): Parameters<TargetRequest>,
+    ) -> Result<String, rmcp::ErrorData> {
+        let summary = self
+            .plugin_manager
+            .purge_runs_by_target(&target)
+            .await
+            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        serde_json::to_string_pretty(&summary)
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))
     }
 
@@ -372,6 +399,7 @@ mod tests {
         assert!(router.has_route("plugin_status"));
         assert!(router.has_route("plugin_cancel"));
         assert!(router.has_route("list_runs_by_target"));
+        assert!(router.has_route("purge_runs_by_target"));
         assert!(router.has_route("list_run_artifacts"));
         assert!(router.has_route("read_artifact"));
     }
