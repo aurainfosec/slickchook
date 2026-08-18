@@ -1,24 +1,30 @@
 name = "naabu"
 container = "projectdiscovery/naabu:v2.6.1"
-description = "Runs ProjectDiscovery Naabu in unprivileged TCP CONNECT mode against one authorized target."
-fixed_args = ["-silent"]
+description = "Runs ProjectDiscovery Naabu port discovery against one or more authorized hosts, exposing nearly all of Naabu's real functionality: scan technique, host discovery probes, rate/performance tuning, and an optional nmap follow-up pass. Corrects a stale claim in this manifest's own prior description - the default has always been scan_type=s (SYN), not unprivileged CONNECT mode. scan_type takes the literal strings s or c, not the words SYN/CONNECT, despite what some naabu help text implies - confirmed against the real source (pkg/scan/option.go's TypeSyn=\"s\"/TypeConnect=\"c\" constants). Unlike nmap, SYN scan here checks for the NET_RAW Linux capability directly (not just root) and gracefully falls back to CONNECT with a log line if unavailable - it does not hard-fail. The one thing that does hard-fail without real root is discovery_only (-sn): confirmed in naabu's own source (ValidateOptions) to return \"sudo access required to perform host discovery\" otherwise. This manifest sets run_as_root = true so that works too, and so nmap_cli's follow-up nmap invocation (the official image bundles nmap + nmap-scripts specifically for this) gets full privileged functionality (e.g. OS detection) as well, not just naabu's own scan. service_discovery/service_version are intentionally not exposed: confirmed in naabu's own source that these currently return a hard \"not implemented\" error - present as flags upstream, non-functional. ProjectDiscovery Cloud Platform upload flags (auth/dashboard/team-id/asset-id/etc.) are deliberately excluded entirely - silently uploading authorized scan data to a third-party SaaS by default would be a real data-handling concern, not just low value."
+fixed_args = ["-silent", "-no-color", "-no-stdin"]
+
+[[options]]
+name = "target"
+description = "Authorized hostname(s), IP address(es), or CIDR range(s) to scan - comma-separated for multiple."
+required = true
+flag = "-host"
+
+[[options]]
+name = "exclude_hosts"
+description = "Comma-separated hosts/IPs/CIDRs to exclude from an otherwise-broader target range."
+required = false
+flag = "-exclude-hosts"
 
 [[options]]
 name = "scan_type"
-description = "Scan method: c for TCP CONNECT or s for SYN (requires NET_RAW)."
+description = "Scan technique: s (SYN, needs NET_RAW - granted here - or falls back to CONNECT with a log line if unavailable) or c (CONNECT, always works). These are the literal accepted values, not the words SYN/CONNECT."
 required = false
 flag = "-scan-type"
 default = "s"
 
 [[options]]
-name = "target"
-description = "Authorized hostname, IP address, or CIDR range to scan."
-required = true
-flag = "-host"
-
-[[options]]
 name = "ports"
-description = "Ports or ranges to scan, for example 80,443 or 1-1024."
+description = "Ports or ranges to scan, e.g. 80,443 or 1-1024. Prefix a port with u: for UDP (e.g. u:53) or - for the full 1-65535 range."
 required = false
 flag = "-port"
 
@@ -29,16 +35,257 @@ required = false
 flag = "-top-ports"
 
 [[options]]
+name = "exclude_ports"
+description = "Ports or ranges to exclude from an otherwise-broader port scan."
+required = false
+flag = "-exclude-ports"
+
+[[options]]
+name = "port_threshold"
+description = "Skip further port scanning for a host once this many open ports are already found on it - useful to avoid burning time fully enumerating a host that's wide open."
+required = false
+flag = "-port-threshold"
+
+[[options]]
+name = "exclude_cdn"
+description = "Skip a full port scan for hosts behind a known CDN/WAF, scanning only 80/443 - CDN edge nodes rarely reflect the real origin's open ports, so a full scan there is usually wasted effort."
+required = false
+flag = "-exclude-cdn"
+
+[[options]]
+name = "display_cdn"
+description = "Report which CDN (if any) is in front of each host."
+required = false
+flag = "-display-cdn"
+
+[[options]]
+name = "threads"
+description = "General internal worker threads. Omit to use Naabu's own default (25)."
+required = false
+flag = "-c"
+
+[[options]]
 name = "rate"
-description = "Maximum connection attempts per second."
+description = "Maximum packets/connection attempts per second."
 required = false
 flag = "-rate"
 
+[[options]]
+name = "json_output"
+description = "Emit newline-delimited JSON instead of plain host:port lines."
+required = false
+flag = "-json"
+
+[[options]]
+name = "csv_output"
+description = "Emit CSV instead of plain host:port lines. Alternate output format to json_output, not meant to be combined with it."
+required = false
+flag = "-csv"
+
+[[options]]
+name = "exclude_output_fields"
+description = "Comma-separated output fields to omit from the result."
+required = false
+flag = "-exclude-output-fields"
+
+[[options]]
+name = "scan_all_ips"
+description = "Scan every IP a hostname's DNS record resolves to, instead of just the first."
+required = false
+flag = "-scan-all-ips"
+
+[[options]]
+name = "ip_version"
+description = "Comma-separated IP version(s) to scan: 4, 6, or 4,6. Omit for Naabu's own default (both)."
+required = false
+flag = "-ip-version"
+
+[[options]]
+name = "source_ip"
+description = "Source IP (optionally IP:port) to send probe packets from."
+required = false
+flag = "-source-ip"
+
+[[options]]
+name = "connect_payload"
+description = "Payload to send in CONNECT/UDP scans. Only valid together with scan_type=c or a UDP port."
+required = false
+flag = "-connect-payload"
+
+[[options]]
+name = "interface"
+description = "Network interface to send/receive packets on."
+required = false
+flag = "-i"
+
+[[options]]
+name = "nmap_cli"
+description = "Run a real nmap command as a follow-up pass on Naabu's discovered open ports, merging service/version/OS results back in - e.g. \"nmap -sV\" or \"nmap -sV -O\" (this image bundles nmap + nmap-scripts specifically for this; run_as_root is set on this plugin so a privileged nmap follow-up like OS detection works too, not just naabu's own scan). Runs as a synchronous phase after Naabu's own scan completes, grouped by host so it isn't repeated per-port."
+required = false
+flag = "-nmap-cli"
+
+[[options]]
+name = "resolvers"
+description = "Comma-separated custom DNS resolvers to use instead of the default."
+required = false
+flag = "-r"
+
+[[options]]
+name = "proxy"
+description = "SOCKS5 proxy (ip[:port] or fqdn[:port]) to relay the scan through. Forces a fallback from SYN to CONNECT scan, since raw packets can't be proxied."
+required = false
+flag = "-proxy"
+
+[[options]]
+name = "proxy_auth"
+description = "SOCKS5 proxy credentials, username:password. Only relevant with proxy."
+required = false
+flag = "-proxy-auth"
+
+[[options]]
+name = "dns_order"
+description = "DNS resolution order: l (local, default), p (proxy), lp, or pl. p/lp/pl require proxy to also be set."
+required = false
+flag = "-dns-order"
+
+[[options]]
+name = "system_resolver"
+description = "Fall back to the system's own DNS resolver if Naabu's own resolution fails."
+required = false
+flag = "-system-resolver"
+
+[[options]]
+name = "stream_mode"
+description = "Stream results as they're found instead of batching. Disables resume, the nmap_cli follow-up, verify, retries, and result shuffling - a real tradeoff, not free speed."
+required = false
+flag = "-stream"
+
+[[options]]
+name = "passive"
+description = "Passive port discovery via Shodan's InternetDB API instead of actually touching the target - no API key needed (InternetDB is a free public endpoint, distinct from full Shodan). Auto-enables stream_mode. A genuinely no-touch alternative worth preferring when the engagement phase doesn't call for active scanning yet."
+required = false
+flag = "-passive"
+
+[[options]]
+name = "discovery_only"
+description = "Host discovery only (-sn) - no port scan at all. Needs real root: confirmed in Naabu's own source to hard-error (\"sudo access required to perform host discovery\") without it - the one place Naabu doesn't gracefully fall back. run_as_root is set on this plugin so this works."
+required = false
+flag = "-host-discovery"
+
+[[options]]
+name = "with_host_discovery"
+description = "Enable host discovery before the port scan (rather than assuming every target is up). Forces scan_type to SYN internally regardless of what's set, per Naabu's own behavior."
+required = false
+flag = "-with-host-discovery"
+
+[[options]]
+name = "syn_ping_ports"
+description = "Comma-separated ports for a TCP SYN discovery ping. Only takes effect with host discovery enabled (with_host_discovery or discovery_only)."
+required = false
+flag = "-probe-tcp-syn"
+
+[[options]]
+name = "ack_ping_ports"
+description = "Comma-separated ports for a TCP ACK discovery ping. Only takes effect with host discovery enabled."
+required = false
+flag = "-probe-tcp-ack"
+
+[[options]]
+name = "icmp_echo_ping"
+description = "ICMP echo request discovery ping. Only takes effect with host discovery enabled."
+required = false
+flag = "-probe-icmp-echo"
+
+[[options]]
+name = "icmp_timestamp_ping"
+description = "ICMP timestamp request discovery ping. Only takes effect with host discovery enabled."
+required = false
+flag = "-probe-icmp-timestamp"
+
+[[options]]
+name = "icmp_netmask_ping"
+description = "ICMP address-mask request discovery ping. Only takes effect with host discovery enabled."
+required = false
+flag = "-probe-icmp-address-mask"
+
+[[options]]
+name = "arp_ping"
+description = "ARP discovery ping - only meaningful against hosts on the same local layer-2 segment as this container, which is rarely the case for an authorized external target."
+required = false
+flag = "-arp-ping"
+
+[[options]]
+name = "ipv6_neighbor_discovery_ping"
+description = "IPv6 Neighbor Discovery ping - the IPv6 equivalent of arp_ping, same local-segment caveat."
+required = false
+flag = "-nd-ping"
+
+[[options]]
+name = "reverse_ptr_lookup"
+description = "Do a reverse-PTR DNS lookup for input IPs."
+required = false
+flag = "-rev-ptr"
+
+[[options]]
+name = "retries"
+description = "Number of retries per port probe. Omit for Naabu's own default (3)."
+required = false
+flag = "-retries"
+
+[[options]]
+name = "timeout_ms"
+description = "Per-probe timeout in milliseconds. Omit for Naabu's own default (1000ms for SYN, 3000ms for CONNECT)."
+required = false
+flag = "-timeout"
+
+[[options]]
+name = "warm_up_time"
+description = "Seconds to wait between scan phases (e.g. before the nmap_cli follow-up)."
+required = false
+flag = "-warm-up-time"
+
+[[options]]
+name = "ping_verify"
+description = "Send ping probes to verify a host is actually up."
+required = false
+flag = "-ping"
+
+[[options]]
+name = "verify"
+description = "Re-validate each found open port with an actual TCP connection - trims false positives from a raw SYN scan at the cost of an extra round trip per port."
+required = false
+flag = "-verify"
+
+[[options]]
+name = "smart_scan"
+description = "Predictive port scanning using Naabu's port-correlation model - scans a seed set, then predicts and prioritizes likely-open ports rather than scanning everything blindly. Not compatible with stream_mode or passive."
+required = false
+flag = "-smart-scan"
+
+[[options]]
+name = "prediction_threshold"
+description = "Minimum confidence percentage (0-100) for smart_scan to act on a predicted port. Only relevant with smart_scan."
+required = false
+flag = "-prediction-threshold"
+
+[[options]]
+name = "debug"
+description = "Show Naabu's own debug-level logging (goes to stderr, not the result list)."
+required = false
+flag = "-debug"
+
+[[options]]
+name = "verbose"
+description = "Show Naabu's own verbose logging."
+required = false
+flag = "-v"
+
 [docker]
 network = "bridge"
-memory = "512m"
+memory = "1g"
 cpus = "1"
 pids_limit = 128
-timeout_seconds = 600
+timeout_seconds = 1800
 cap_add = ["NET_RAW"]
-tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
+run_as_root = true
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=128m"]
