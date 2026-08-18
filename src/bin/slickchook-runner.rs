@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use slickchook::plugin_manager::{
-    build_container_args, load_manifest, missing_required_secrets, validate_docker_policy,
+    DockerPolicy, build_container_args, load_manifest, missing_required_secrets,
+    validate_docker_policy,
 };
 use std::{
     env, fs,
@@ -11,6 +12,17 @@ use std::{
     time::Duration,
 };
 use tokio::{process::Command, time};
+
+/// UID:GID a plugin's container (and its permission-fixup follow-up) runs
+/// as. `0:0` only for a plugin whose manifest opts into
+/// `DockerPolicy::run_as_root` - see that field's doc comment for why.
+fn container_user(docker: &DockerPolicy) -> &'static str {
+    if docker.run_as_root {
+        "0:0"
+    } else {
+        "65534:65534"
+    }
+}
 
 struct RunnerArgs {
     manifest: PathBuf,
@@ -99,7 +111,7 @@ async fn run() -> Result<()> {
         .arg("--cpus")
         .arg(&manifest.docker.cpus)
         .arg("--user")
-        .arg("65534:65534");
+        .arg(container_user(&manifest.docker));
 
     for tmpfs in &manifest.docker.tmpfs {
         command.arg("--tmpfs").arg(tmpfs);
@@ -157,7 +169,7 @@ async fn run() -> Result<()> {
                 .stderr(Stdio::null())
                 .status()
                 .await;
-            fixup_artifact_permissions(&artifact_dir).await;
+            fixup_artifact_permissions(&artifact_dir, &manifest.docker).await;
             bail!(
                 "plugin `{}` exceeded timeout of {} seconds",
                 manifest.name,
@@ -166,13 +178,15 @@ async fn run() -> Result<()> {
         }
     };
 
-    // Plugin containers run as UID 65534, and some tools (e.g. testssl.sh)
-    // restrict permissions on their own output files as they write them,
-    // leaving them unreadable by the slickchook service's own user
-    // afterward. Fix up permissions as the same UID that owns the files
-    // (only their owner, or root, may relax them), immediately after the
-    // container exits, before anything tries to read them back.
-    fixup_artifact_permissions(&artifact_dir).await;
+    // Plugin containers run as UID 65534 (or UID 0, for the few plugins
+    // whose real functionality requires root - see DockerPolicy::run_as_root),
+    // and some tools (e.g. testssl.sh) restrict permissions on their own
+    // output files as they write them, leaving them unreadable by the
+    // slickchook service's own user afterward. Fix up permissions as the
+    // same UID that owns the files (only their owner, or root, may relax
+    // them), immediately after the container exits, before anything tries
+    // to read them back.
+    fixup_artifact_permissions(&artifact_dir, &manifest.docker).await;
 
     io::stdout()
         .write_all(&output.stdout)
@@ -195,7 +209,7 @@ async fn run() -> Result<()> {
 /// the same UID the plugin container ran as, making everything it wrote
 /// readable. Best-effort: failures are logged, not propagated, since the
 /// plugin's own result matters more than this cleanup step.
-async fn fixup_artifact_permissions(artifact_dir: &Path) {
+async fn fixup_artifact_permissions(artifact_dir: &Path, docker: &DockerPolicy) {
     let mut command = Command::new("docker");
     command
         .arg("run")
@@ -208,7 +222,7 @@ async fn fixup_artifact_permissions(artifact_dir: &Path) {
         .arg("--security-opt")
         .arg("no-new-privileges")
         .arg("--user")
-        .arg("65534:65534")
+        .arg(container_user(docker))
         .arg("--volume")
         .arg(format!("{}:/artifacts:rw", artifact_dir.display()))
         .arg("alpine:3.21")

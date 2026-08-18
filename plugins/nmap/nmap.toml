@@ -1,7 +1,7 @@
 name = "nmap"
 container = "instrumentisto/nmap:7.98-r2"
-description = "Runs bounded Nmap scans against one authorized target, including optional raw-packet checks, NSE scripts, and Nmap's own timing-template mechanism for trading speed against IDS/network evasion. Uses the stock instrumentisto/nmap image with no custom Dockerfile, so Nmap's own full built-in script library ships under /usr/share/nmap/scripts already - any of Nmap's own script/category names work with nse_scripts out of the box, no separate install step needed. Nmap validates script names itself at scan time and errors clearly on an unknown one; slickchook's install step never runs the container, so a typo'd script name can't be caught before a real scan."
-fixed_args = ["-sT"]
+description = "Runs a bounded Nmap scan against one authorized target, exposing nearly all of Nmap's real functionality: scan technique choice, host discovery, service/version detection, NSE scripts, OS detection, timing/performance tuning, firewall/IDS evasion, and output formats. Confirmed live against the exact pinned 7.98 binary, not guessed: most of this functionality (any scan technique other than connect_scan, os_detection, fragment_packets, and several discovery-probe options) needs actual root privilege, not just a Linux capability - Nmap's own check is a literal EUID-0 test, so granting NET_RAW capability alone (as this manifest already does) isn't enough. This plugin's docker policy therefore sets run_as_root = true, a deliberate, scoped exception to this fleet's usual unprivileged-container default. Several boolean scan-technique options are mutually exclusive alternatives (pick one, or combine udp_scan with at most one TCP-family technique, matching Nmap's own rules) - the schema can't enforce that, so it's on the caller to pick sensibly; Nmap itself will error clearly on a genuinely invalid combination. Five discovery-probe flags (syn_ping/ack_ping/udp_ping/sctp_ping/ip_protocol_ping) only support Nmap's own default probe ports here, not a custom port list: Nmap requires -PS/-PA/-PU/-PY/-PO's port list concatenated directly onto the flag with no space, and this manifest schema always renders an option's flag and value as separate argv entries, so a custom-port-list variant of these five specifically isn't mechanically expressible here. xml_output/normal_output/grepable_output need an explicit path under /artifacts/ (e.g. /artifacts/result.xml) to actually be retrievable afterward via list_run_artifacts/read_artifact - anywhere else isn't persisted, since only /artifacts is writable and survives the container's exit."
+fixed_args = []
 
 [[arguments]]
 name = "target"
@@ -10,22 +10,256 @@ required = true
 position = 1
 
 [[options]]
+name = "exclude_hosts"
+description = "Comma-separated hosts/networks to exclude from target if target is a range/CIDR."
+required = false
+flag = "--exclude"
+
+[[options]]
+name = "list_scan"
+description = "List Scan (-sL): just list what would be scanned, without actually scanning or even pinging. Combining this with ports/service_detection etc. is invalid - Nmap does no port scan at all in this mode."
+required = false
+flag = "-sL"
+
+[[options]]
+name = "ping_scan_only"
+description = "Ping Scan (-sn): host discovery only, no port scan. Mutually exclusive with actually scanning ports."
+required = false
+flag = "-sn"
+
+[[options]]
+name = "no_ping"
+description = "Skip Nmap's host discovery and treat the target as online (-Pn). Use when ICMP/host-discovery probes are blocked or filtered - a common real-world condition - since without this, Nmap can wrongly report a genuinely live host as down and skip scanning it entirely."
+required = false
+flag = "-Pn"
+
+[[options]]
+name = "syn_ping"
+description = "TCP SYN discovery ping (-PS) using Nmap's own default probe ports - needs root (granted here). A custom port list isn't expressible through this option; see the plugin description for why."
+required = false
+flag = "-PS"
+
+[[options]]
+name = "ack_ping"
+description = "TCP ACK discovery ping (-PA) using Nmap's own default probe ports - needs root (granted here)."
+required = false
+flag = "-PA"
+
+[[options]]
+name = "udp_ping"
+description = "UDP discovery ping (-PU) using Nmap's own default probe ports - needs root (granted here). Confirmed live: fails outright without root (\"only works if you are root\")."
+required = false
+flag = "-PU"
+
+[[options]]
+name = "sctp_ping"
+description = "SCTP INIT discovery ping (-PY) using Nmap's own default probe ports - needs root (granted here)."
+required = false
+flag = "-PY"
+
+[[options]]
+name = "ip_protocol_ping"
+description = "IP protocol discovery ping (-PO) using Nmap's own default protocol list - needs root (granted here)."
+required = false
+flag = "-PO"
+
+[[options]]
+name = "icmp_echo_ping"
+description = "ICMP echo discovery ping (-PE). Confirmed live: without root this silently falls back to a TCP pingscan instead (Nmap prints a warning, doesn't error) - with root (granted here) it does a real ICMP ping."
+required = false
+flag = "-PE"
+
+[[options]]
+name = "icmp_timestamp_ping"
+description = "ICMP timestamp-request discovery ping (-PP)."
+required = false
+flag = "-PP"
+
+[[options]]
+name = "icmp_netmask_ping"
+description = "ICMP netmask-request discovery ping (-PM)."
+required = false
+flag = "-PM"
+
+[[options]]
+name = "never_resolve_dns"
+description = "Never do reverse-DNS resolution (-n). Mutually exclusive with always_resolve_dns; omit both for Nmap's own default (resolve only when it seems useful)."
+required = false
+flag = "-n"
+
+[[options]]
+name = "always_resolve_dns"
+description = "Always do reverse-DNS resolution (-R), even for down hosts. Mutually exclusive with never_resolve_dns."
+required = false
+flag = "-R"
+
+[[options]]
+name = "dns_servers"
+description = "Comma-separated custom DNS servers to use instead of the system resolver."
+required = false
+flag = "--dns-servers"
+
+[[options]]
+name = "use_system_dns"
+description = "Use the OS's own DNS resolver instead of Nmap's bundled one - slower, but avoids some kinds of DNS-based IDS detection."
+required = false
+flag = "--system-dns"
+
+[[options]]
+name = "traceroute"
+description = "Trace the hop path to each target host."
+required = false
+flag = "--traceroute"
+
+[[options]]
+name = "syn_scan"
+description = "SYN scan (-sS), Nmap's own default/most common technique when privileged - stealthier than connect_scan since it never completes the TCP handshake. Needs root (granted here). Mutually exclusive with the other scan-technique options below, aside from combining with udp_scan."
+required = false
+flag = "-sS"
+
+[[options]]
+name = "connect_scan"
+description = "TCP connect() scan (-sT) - completes the full handshake, the only technique that works without root. This was this plugin's hardcoded, only behavior before scan technique choice was added; still fully supported, just no longer forced. Omit every scan-technique option to let Nmap pick its own default instead (SYN scan now that root is granted)."
+required = false
+flag = "-sT"
+
+[[options]]
+name = "ack_scan"
+description = "ACK scan (-sA) - maps firewall rulesets (filtered vs unfiltered) rather than open/closed state. Needs root."
+required = false
+flag = "-sA"
+
+[[options]]
+name = "window_scan"
+description = "Window scan (-sW) - like ack_scan but can sometimes distinguish open from closed on some stacks. Needs root."
+required = false
+flag = "-sW"
+
+[[options]]
+name = "maimon_scan"
+description = "Maimon scan (-sM) - rarely useful today, included for completeness. Needs root."
+required = false
+flag = "-sM"
+
+[[options]]
+name = "udp_scan"
+description = "UDP scan (-sU) - a completely different protocol surface from every TCP technique above; can combine with at most one TCP-family technique in the same run, per Nmap's own rules. Needs root. Confirmed live: fails outright without root."
+required = false
+flag = "-sU"
+
+[[options]]
+name = "null_scan"
+description = "TCP Null scan (-sN, no flags set) - a firewall/IDS evasion technique. Needs root."
+required = false
+flag = "-sN"
+
+[[options]]
+name = "fin_scan"
+description = "TCP FIN scan (-sF) - a firewall/IDS evasion technique. Needs root."
+required = false
+flag = "-sF"
+
+[[options]]
+name = "xmas_scan"
+description = "TCP Xmas scan (-sX, FIN+PSH+URG flags set) - a firewall/IDS evasion technique. Needs root."
+required = false
+flag = "-sX"
+
+[[options]]
+name = "sctp_init_scan"
+description = "SCTP INIT scan (-sY), the SCTP equivalent of a SYN scan. Needs root."
+required = false
+flag = "-sY"
+
+[[options]]
+name = "sctp_cookie_echo_scan"
+description = "SCTP COOKIE-ECHO scan (-sZ) - stealthier than sctp_init_scan on some stacks. Needs root."
+required = false
+flag = "-sZ"
+
+[[options]]
+name = "ip_protocol_scan"
+description = "IP protocol scan (-sO) - discovers which IP protocols (TCP, UDP, ICMP, etc.), not ports, the target supports. Needs root."
+required = false
+flag = "-sO"
+
+[[options]]
+name = "idle_scan"
+description = "Idle/zombie scan (-sI zombiehost[:probeport]) - scans through a third-party \"zombie\" host to fully hide the real source, at the cost of needing a suitable zombie host to already exist. Needs root."
+required = false
+flag = "-sI"
+
+[[options]]
+name = "ftp_bounce_scan"
+description = "FTP bounce scan (-b ftprelayhost) - routes the scan through a vulnerable FTP server. Almost no modern FTP server is exploitable this way; included for completeness."
+required = false
+flag = "-b"
+
+[[options]]
 name = "ports"
 description = "Ports or ranges accepted by Nmap, for example 22,80,443 or 1-1024."
 required = false
 flag = "-p"
 
 [[options]]
+name = "exclude_ports"
+description = "Ports or ranges to exclude from an otherwise-broader scan."
+required = false
+flag = "--exclude-ports"
+
+[[options]]
+name = "fast_port_scan"
+description = "Fast mode (-F): scan fewer ports than the default scan (Nmap's own top-100-ish list)."
+required = false
+flag = "-F"
+
+[[options]]
+name = "sequential_ports"
+description = "Scan ports in sequential order (-r) instead of Nmap's default randomized order."
+required = false
+flag = "-r"
+
+[[options]]
+name = "top_ports"
+description = "Scan only this many of Nmap's most commonly-seen ports."
+required = false
+flag = "--top-ports"
+
+[[options]]
+name = "port_ratio"
+description = "Scan only ports at least this common, as a ratio (0.0-1.0) from Nmap's own port-frequency data."
+required = false
+flag = "--port-ratio"
+
+[[options]]
 name = "service_detection"
-description = "Probe open ports to identify services and versions."
+description = "Probe open ports to identify services and versions (-sV)."
 required = false
 flag = "-sV"
 
 [[options]]
-name = "timing_template"
-description = "Nmap timing template, 0-5. 0 (paranoid) and 1 (sneaky) space probes out for IDS/network evasion at real cost to speed; 4 (aggressive) and 5 (insane) are fast and noisy. Omit to use Nmap's own default (3, normal)."
+name = "version_intensity"
+description = "Version-detection probe intensity, 0 (light) to 9 (try every probe). Only relevant with service_detection."
 required = false
-flag = "-T"
+flag = "--version-intensity"
+
+[[options]]
+name = "version_light"
+description = "Shorthand for version_intensity=2 - faster, less thorough. Mutually exclusive with version_intensity/version_all."
+required = false
+flag = "--version-light"
+
+[[options]]
+name = "version_all"
+description = "Shorthand for version_intensity=9 - try every single probe. Mutually exclusive with version_intensity/version_light."
+required = false
+flag = "--version-all"
+
+[[options]]
+name = "version_trace"
+description = "Show detailed version-detection activity, for debugging why a service wasn't identified."
+required = false
+flag = "--version-trace"
 
 [[options]]
 name = "nse_scripts"
@@ -35,15 +269,275 @@ flag = "--script"
 default = "ssh2-enum-algos,ssh-auth-methods"
 
 [[options]]
-name = "no_ping"
-description = "Skip Nmap's host discovery and treat the target as online (-Pn). Use when ICMP/host-discovery probes are blocked or filtered - a common real-world condition - since without this, Nmap can wrongly report a genuinely live host as down and skip scanning it entirely."
+name = "script_args"
+description = "Arguments to pass to NSE scripts, comma-separated name=value pairs (e.g. user=admin,pass=admin)."
 required = false
-flag = "-Pn"
+flag = "--script-args"
+
+[[options]]
+name = "script_trace"
+description = "Show all data sent/received by NSE scripts - verbose, for debugging a script's behavior."
+required = false
+flag = "--script-trace"
+
+[[options]]
+name = "os_detection"
+description = "Enable OS fingerprinting (-O). Needs root. Confirmed live: fails outright without root (\"TCP/IP fingerprinting ... requires root privileges\")."
+required = false
+flag = "-O"
+
+[[options]]
+name = "osscan_limit"
+description = "Limit OS detection to promising targets only (at least one open and one closed port found) - faster on a broad scan. Only relevant with os_detection."
+required = false
+flag = "--osscan-limit"
+
+[[options]]
+name = "osscan_guess"
+description = "Guess the OS more aggressively when there's no perfect fingerprint match. Only relevant with os_detection."
+required = false
+flag = "--osscan-guess"
+
+[[options]]
+name = "timing_template"
+description = "Nmap timing template, 0-5. 0 (paranoid) and 1 (sneaky) space probes out for IDS/network evasion at real cost to speed; 4 (aggressive) and 5 (insane) are fast and noisy. Omit to use Nmap's own default (3, normal)."
+required = false
+flag = "-T"
+
+[[options]]
+name = "min_hostgroup"
+description = "Minimum parallel host scan group size - raising this trades per-host granularity for throughput on large target ranges."
+required = false
+flag = "--min-hostgroup"
+
+[[options]]
+name = "max_hostgroup"
+description = "Maximum parallel host scan group size."
+required = false
+flag = "--max-hostgroup"
+
+[[options]]
+name = "min_parallelism"
+description = "Minimum number of probes to run in parallel."
+required = false
+flag = "--min-parallelism"
+
+[[options]]
+name = "max_parallelism"
+description = "Maximum number of probes to run in parallel - lower this for a quieter, gentler scan."
+required = false
+flag = "--max-parallelism"
+
+[[options]]
+name = "min_rtt_timeout"
+description = "Minimum probe round-trip-time timeout, e.g. 100ms."
+required = false
+flag = "--min-rtt-timeout"
+
+[[options]]
+name = "max_rtt_timeout"
+description = "Maximum probe round-trip-time timeout, e.g. 1000ms - raise on a high-latency link to avoid false negatives."
+required = false
+flag = "--max-rtt-timeout"
+
+[[options]]
+name = "initial_rtt_timeout"
+description = "Initial probe round-trip-time timeout estimate before Nmap has calibrated to the real latency."
+required = false
+flag = "--initial-rtt-timeout"
+
+[[options]]
+name = "max_retries"
+description = "Maximum retransmissions per probe. Lower for a faster but less thorough scan."
+required = false
+flag = "--max-retries"
+
+[[options]]
+name = "host_timeout"
+description = "Give up on a target entirely after this long, e.g. 5m."
+required = false
+flag = "--host-timeout"
+
+[[options]]
+name = "scan_delay"
+description = "Minimum delay between probes, e.g. 1s - raise for a quieter, slower scan."
+required = false
+flag = "--scan-delay"
+
+[[options]]
+name = "max_scan_delay"
+description = "Maximum delay between probes Nmap will use even when adapting to a rate-limiting target."
+required = false
+flag = "--max-scan-delay"
+
+[[options]]
+name = "min_rate"
+description = "Send packets no slower than this many per second - a floor, not a target; raising it trades stealth for speed."
+required = false
+flag = "--min-rate"
+
+[[options]]
+name = "max_rate"
+description = "Send packets no faster than this many per second - a ceiling for a deliberately gentle/quiet scan."
+required = false
+flag = "--max-rate"
+
+[[options]]
+name = "fragment_packets"
+description = "Fragment probe packets (-f) to slip past some packet-filtering firewalls/IDS. Needs root. Confirmed live: fails outright without root (\"fragscan requires root privileges\")."
+required = false
+flag = "-f"
+
+[[options]]
+name = "mtu"
+description = "Fragment packets to this specific MTU instead of -f's default fragment size. Needs root, same as fragment_packets."
+required = false
+flag = "--mtu"
+
+[[options]]
+name = "decoys"
+description = "Comma-separated decoy source addresses to cloak the real scan among (include ME for your own real address at the position it'd naturally sort to). Needs root for the raw-packet techniques decoys are meaningful with."
+required = false
+flag = "-D"
+
+[[options]]
+name = "spoof_source"
+description = "Spoof the scan's source address. Confirmed live: with connect_scan this only works if the address is genuinely one of your own; fully spoofing an arbitrary source needs a raw scan technique (e.g. syn_scan) plus interface, and you need to actually understand what you're doing to get meaningful results back."
+required = false
+flag = "-S"
+
+[[options]]
+name = "interface"
+description = "Network interface to send/receive packets on, e.g. eth0 - required alongside spoof_source when spoofing an address not already on a local interface."
+required = false
+flag = "-e"
+
+[[options]]
+name = "source_port"
+description = "Source port number to use for probes - some misconfigured firewalls trust traffic from specific ports (e.g. 53, 20)."
+required = false
+flag = "--source-port"
+
+[[options]]
+name = "proxies"
+description = "Comma-separated HTTP/SOCKS4 proxy URLs to relay the scan's connections through."
+required = false
+flag = "--proxies"
+
+[[options]]
+name = "data_hex"
+description = "Append this hex-encoded custom payload to sent packets."
+required = false
+flag = "--data"
+
+[[options]]
+name = "data_string"
+description = "Append this ASCII string as a custom payload to sent packets."
+required = false
+flag = "--data-string"
+
+[[options]]
+name = "data_length"
+description = "Append this many bytes of random data to sent packets, to obscure Nmap's own packet-size fingerprint."
+required = false
+flag = "--data-length"
+
+[[options]]
+name = "ip_options"
+description = "Send packets with these specific IP options set, in Nmap's own IP-options syntax."
+required = false
+flag = "--ip-options"
+
+[[options]]
+name = "ttl"
+description = "Set the IP time-to-live field on sent packets."
+required = false
+flag = "--ttl"
+
+[[options]]
+name = "spoof_mac"
+description = "Spoof the source MAC address - a full address, a vendor prefix, or a vendor name Nmap will look up a prefix for."
+required = false
+flag = "--spoof-mac"
+
+[[options]]
+name = "bad_checksum"
+description = "Send packets with an intentionally bogus TCP/UDP/SCTP checksum - real stacks drop these, but some naive firewalls/IDS don't validate checksums and respond anyway, revealing themselves."
+required = false
+flag = "--badsum"
+
+[[options]]
+name = "xml_output"
+description = "Write an XML report to this exact path for later retrieval - must be under /artifacts/ (e.g. /artifacts/result.xml) to actually be captured and readable afterward via list_run_artifacts/read_artifact; anywhere else isn't persisted."
+required = false
+flag = "-oX"
+
+[[options]]
+name = "normal_output"
+description = "Write a plain-text report to this exact path - same /artifacts/ requirement as xml_output."
+required = false
+flag = "-oN"
+
+[[options]]
+name = "grepable_output"
+description = "Write a line-oriented, greppable report to this exact path - same /artifacts/ requirement as xml_output."
+required = false
+flag = "-oG"
+
+[[options]]
+name = "verbose"
+description = "Increase Nmap's own logging verbosity (goes to stderr, not the scan results)."
+required = false
+flag = "-v"
+
+[[options]]
+name = "show_reason"
+description = "Show the specific reason (e.g. which packet/flag combination) Nmap concluded each port's state from."
+required = false
+flag = "--reason"
+
+[[options]]
+name = "open_only"
+description = "Only report ports that are open (or possibly open) - trims closed/filtered noise from the result."
+required = false
+flag = "--open"
+
+[[options]]
+name = "packet_trace"
+description = "Show every packet sent and received - very verbose, for debugging exactly what Nmap did on the wire."
+required = false
+flag = "--packet-trace"
+
+[[options]]
+name = "ipv6"
+description = "Scan the target as IPv6 (-6) instead of IPv4."
+required = false
+flag = "-6"
+
+[[options]]
+name = "aggressive"
+description = "Aggressive mode (-A): enables os_detection, service_detection, default NSE scripts, and traceroute together in one flag. Needs root (it includes OS detection). Noisy and slow relative to a scoped, single-purpose scan - use when the engagement genuinely wants a broad sweep, not as a routine default."
+required = false
+flag = "-A"
+
+[[options]]
+name = "send_eth"
+description = "Force sending at the raw Ethernet-frame layer instead of raw IP packets. Needs root."
+required = false
+flag = "--send-eth"
+
+[[options]]
+name = "send_ip"
+description = "Force sending raw IP packets instead of Ethernet frames. Needs root."
+required = false
+flag = "--send-ip"
 
 [docker]
 network = "bridge"
-memory = "512m"
+memory = "1g"
 cpus = "1"
 pids_limit = 128
-timeout_seconds = 600
+timeout_seconds = 1800
 cap_add = ["NET_RAW"]
+run_as_root = true
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]

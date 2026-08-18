@@ -142,6 +142,19 @@ pub struct DockerPolicy {
     pub cap_add: Vec<String>,
     #[serde(default = "default_input_read_only")]
     pub input_read_only: bool,
+    /// Runs the plugin container (and its artifact-permission-fixup
+    /// follow-up) as UID/GID 0 instead of the fleet's usual unprivileged
+    /// 65534, for tools whose actual functionality requires it - e.g. Nmap's
+    /// raw-socket-dependent scan techniques and OS detection check for the
+    /// literal EUID 0, not just the `NET_RAW` Linux capability, so granting
+    /// that capability alone (as `cap_add` does) doesn't satisfy them.
+    /// Confirmed live against the exact pinned Nmap version before adding
+    /// this rather than assumed: `-sS`/`-sU`/`-O`/`-f` all hard-fail with
+    /// Nmap's own "requires root privileges" message under UID 65534 even
+    /// with `NET_RAW` granted. A deliberate, scoped exception - only set
+    /// this for a plugin whose real functionality genuinely needs it.
+    #[serde(default)]
+    pub run_as_root: bool,
 }
 
 fn default_input_read_only() -> bool {
@@ -159,6 +172,7 @@ impl Default for DockerPolicy {
             tmpfs: Vec::new(),
             cap_add: Vec::new(),
             input_read_only: true,
+            run_as_root: false,
         }
     }
 }
