@@ -179,3 +179,35 @@
   exercising `scan_type=s` and `nmap_cli`) still pending that install,
   since this sandbox has no docker access to confirm beyond the
   option-schema level.
+
+- Rewrote `SKILL.md` to remove every hardcoded plugin name from the
+  methodology (§0, §2-5), replacing tool-specific references with
+  capability-role descriptions the AI matches to whatever's actually
+  installed via `list_plugins`. Reason: the installed plugin set varies
+  per instance and changes over time (a tool gets swapped for a
+  faster/better alternative - `subfinder`→`subfaster` earlier this
+  session is exactly this - or only a subset of plugins is installed
+  at all), so hardcoding "run `subfinder`, `amass`, `sublert`..." bakes
+  in an assumption that breaks the moment that specific set isn't what
+  a given deployment has.
+  Checked first that this wouldn't lose any real knowledge: nearly
+  every tool-specific nuance previously duplicated in `SKILL.md` (the
+  `wpscan` flagged-vs-full-list distinction, `graphqlcheck`'s
+  `guess_fields`, `gowitness`'s own explicit "always follow with
+  screensanitize" instruction, `medusa`'s credential-testing framing,
+  `shodan-search`'s scope requirement, `naabu`'s `nmap_cli`/`passive`)
+  already lives in that plugin's own manifest `description` - exactly
+  where this whole session's self-documentation effort has been putting
+  it. `SKILL.md` now explicitly defers to `list_plugins`' descriptions
+  as the authoritative source for tool-specific behavior, rather than
+  duplicating (and risking drift from) what's already there.
+  Two patterns that were previously named to two specific plugins
+  (`medusa` for credential-testing, `shodan-search` for internet-wide-
+  database queries) are now described generically by the underlying
+  property ("performs a live authenticated action" / "queries a
+  shared/third-party database not scoped to one target") so the same
+  scope-discipline rule keeps applying correctly to whatever plugin(s)
+  match that description in the future, not just these two by name.
+  Verified: swept the rewritten file for every current plugin name
+  (`grep` across the full fleet) - zero hits. Documentation-only
+  change, no build/test impact.
