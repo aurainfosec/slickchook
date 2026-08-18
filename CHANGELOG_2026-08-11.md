@@ -80,41 +80,34 @@
   SSH-only default.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
-- Added a new `subfaster` plugin (melvinsh/subfaster, MIT-licensed fork
-  of ProjectDiscovery's subfinder tuned purely for speed - same
-  passive-source engine, curated fast keyless sources by default,
-  no update-check network call, HTTP keep-alive). No official Docker
-  image exists, so `plugins/subfaster/Dockerfile` builds it from source
-  (`go install ... @v2.18.0`, pinned rather than `@latest`) on top of a
-  minimal alpine base, matching the git-clone/go-install pattern already
-  used by `gospider`/`kiterunner` in this fleet. `ENV HOME=/tmp` because
-  the container runs as UID 65534 with no /etc/passwd entry, and
-  subfaster tries to read/write its own config under `$HOME/.config` -
-  the same fix already applied to `wpscan`/`shodan-host`/`shodan-search`
-  earlier this session.
-  Downloaded the real v2.18.0 Linux release binary directly (no docker
-  access in this sandbox) to verify every flag against its actual `-h`
-  output rather than the README's prose, matching the standing rule
-  after a couple of wrong guesses earlier in this fleet's history.
-  Notably: unlike `subfinder`'s plugin, no `fixed_args` are needed here
-  at all - `-silent` and disabling the update check are already
-  subfaster's own defaults, not something this manifest has to force.
-  Also notably: there is no `rate_limit` option, because upstream
-  removed rate-limiting entirely (documented in its own README as a
-  deliberate simplification versus subfinder). Exposed `active`
-  (resolve-and-drop-dead-entries) as an explicit option with a
-  description flagging that it's active reconnaissance despite living
-  in an otherwise fully passive tool, and `max_time_minutes` with a
-  direct callout to the wpscan enumerate-everything timeout lesson
-  learned earlier - raising subfaster's own internal time budget without
-  also raising this plugin's `timeout_seconds` risks the exact same
-  outer-container-kills-it-first failure.
-  Updated SKILL.md's Phase 1 to mention `subfaster` alongside
-  `subfinder` (not replacing it) and to keep `active` off during the
-  passive phase.
-  Verified: `cargo build --locked --release --bins` and `cargo test
-  --lib` (12/12) clean. Live verification (image build + a real scan)
-  still pending, since installing a brand-new plugin - unlike the
-  binary/manifest changes above - needs `slickchook-plugin install
-  plugins/subfaster` run on the host, which this sandbox has no
-  privileges to do itself.
+
+- Added `purge_runs_by_target`, a new MCP tool to let an operator delete
+  old artifacts on request rather than leaving them to accumulate
+  forever - there was previously no cleanup mechanism of any kind.
+  Deliberately not an automatic/silent GC (e.g. a systemd-timer
+  age-based sweep): the request was specifically for something closer
+  to Burp Suite's "delete this project / keep it / just continue"
+  choice, and since slickchook is a headless daemon with no terminal UI
+  to show that prompt in, the choice is instead surfaced through the
+  connected AI client - it calls list_runs_by_target when a target with
+  existing history is about to be (re)engaged, asks the operator
+  whether to delete/keep/continue, and only calls
+  purge_runs_by_target if the operator says delete. The tool's own
+  description states this requirement explicitly (irreversible, human
+  confirmation required, never call automatically) so any MCP client
+  reading it has that context without relying on SKILL.md alone.
+  Implementation: `PostgresStore::delete_runs_by_target` (src/storage.rs)
+  deletes matching `plugin_runs` rows and returns their `artifact_dir`s,
+  then removes each directory on disk, reusing the same
+  `canonical_contained` symlink-escape protection `resolve_run_artifact_dir`
+  already uses. A row still counts as deleted once its DB entry is gone
+  even if the directory removal itself fails (reported in the summary's
+  `errors`, not silently dropped) - matches `list_runs_by_target`'s own
+  guarantee that a purged run won't show up again either way.
+  Updated SKILL.md with the keep/delete/continue guidance next to the
+  existing `list_runs_by_target` bullet.
+  Verified: `cargo build --locked --release --bins` and `cargo test`
+  (14/14 - 12 lib + 2 main.rs, including `registers_all_mcp_tools` now
+  covering the new tool) clean. Live verification pending a full binary
+  redeploy (same `build-deb.sh`/`apt install` path as the schema and
+  docker-permission fixes earlier today).

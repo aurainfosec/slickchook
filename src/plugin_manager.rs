@@ -1,4 +1,4 @@
-use crate::storage::{DatabaseTls, PostgresStore, RunSummary};
+use crate::storage::{DatabaseTls, PostgresStore, PurgeSummary, RunSummary};
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -478,6 +478,14 @@ impl PluginManager {
         self.store
             .list_runs_by_target(target, limit.clamp(1, MAX_RUN_LIST_LIMIT))
             .await
+    }
+
+    /// Permanently deletes every recorded run (database row and on-disk
+    /// artifact directory) whose target matches `target` exactly.
+    /// Irreversible - see the `purge_runs_by_target` MCP tool's description
+    /// for the human-confirmation requirement this exists to enforce.
+    pub async fn purge_runs_by_target(&self, target: &str) -> Result<PurgeSummary> {
+        self.store.delete_runs_by_target(target).await
     }
 
     /// Lists artifact files recorded for a specific run.

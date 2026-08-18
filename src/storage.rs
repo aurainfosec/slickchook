@@ -155,6 +155,17 @@ fn canonical_contained(root: &Path, candidate: impl AsRef<Path>) -> Result<PathB
     Ok(resolved)
 }
 
+/// Outcome of `PostgresStore::delete_runs_by_target`: which runs were fully
+/// removed (database row and on-disk artifact directory both gone) and which
+/// hit an error partway through (row still deleted - see below - but the
+/// directory removal failed for some other reason, e.g. a permissions issue).
+#[derive(Debug, Serialize)]
+pub struct PurgeSummary {
+    pub target: String,
+    pub deleted_run_ids: Vec<String>,
+    pub errors: Vec<String>,
+}
+
 /// PostgreSQL-backed run store. Construction is asynchronous because tokio-postgres
 /// establishes the connection immediately; the connection driver is kept alive in a
 /// background task.
@@ -281,6 +292,59 @@ impl PostgresStore {
         let dir: String = row.get(0);
         let root = std::fs::canonicalize(&self.artifacts_root)?;
         canonical_contained(&root, dir)
+    }
+
+    /// Permanently deletes every recorded run whose target matches exactly,
+    /// removing both the database row and its on-disk artifact directory.
+    /// Irreversible - callers must only invoke this after explicit human
+    /// confirmation (see the `purge_runs_by_target` MCP tool's description),
+    /// never automatically or silently.
+    ///
+    /// Deletes the database row first, then removes the directory: a row
+    /// whose directory removal fails still counts as deleted (it's gone from
+    /// `list_runs_by_target` either way), but is reported in `errors` so the
+    /// caller can flag the leftover directory rather than silently losing
+    /// track of it.
+    pub async fn delete_runs_by_target(&self, target: &str) -> Result<PurgeSummary> {
+        const SQL: &str = "DELETE FROM plugin_runs WHERE target = $1 RETURNING run_id, artifact_dir";
+        let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&target];
+        let result = self.client.read().await.query(SQL, params).await;
+        let rows = match result {
+            Ok(rows) => rows,
+            Err(error) if error.is_closed() => {
+                self.reconnect().await?;
+                self.client.read().await.query(SQL, params).await?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let root = std::fs::canonicalize(&self.artifacts_root)?;
+        let mut deleted_run_ids = Vec::new();
+        let mut errors = Vec::new();
+        for row in rows {
+            let run_id: String = row.get(0);
+            let dir: String = row.get(1);
+            match canonical_contained(&root, &dir) {
+                Ok(path) => match std::fs::remove_dir_all(&path) {
+                    Ok(()) => deleted_run_ids.push(run_id),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        deleted_run_ids.push(run_id);
+                    }
+                    Err(error) => errors.push(format!(
+                        "{run_id}: failed to remove {}: {error}",
+                        path.display()
+                    )),
+                },
+                Err(error) => {
+                    deleted_run_ids.push(run_id.clone());
+                    errors.push(format!("{run_id}: {error}"));
+                }
+            }
+        }
+        Ok(PurgeSummary {
+            target: target.to_string(),
+            deleted_run_ids,
+            errors,
+        })
     }
 
     pub async fn list_runs_by_target(&self, target: &str, limit: i64) -> Result<Vec<RunSummary>> {
