@@ -130,11 +130,18 @@ specifically before running it.
 
 **Phase 2 — Active resolution and host discovery (parallel per discovered host)**
 Feed Phase 1's discovered hostnames into `dnsx` (resolve to records/IPs)
-and `naabu` (unprivileged TCP CONNECT port discovery) in parallel across
-hosts; if `shodan-host` is configured, run it per resolved IP too — a
-passive, no-touch data source you're already positioned to use once you
-have the IPs. Follow up open ports of interest with `nmap` for deeper
-service detection. `nmap` now runs privileged (`run_as_root` in its own
+and `naabu` (port discovery - `scan_type` defaults to SYN, falling back
+to CONNECT automatically if unavailable) in parallel across hosts; if
+`shodan-host` is configured, run it per resolved IP too — a passive,
+no-touch data source you're already positioned to use once you have the
+IPs. `naabu`'s own `nmap_cli` option can run a real nmap follow-up pass
+on its discovered ports directly (e.g. `nmap -sV`), merging results back
+in - often enough on its own without a separate `nmap` run afterward,
+unless you specifically need one of `nmap`'s own options `nmap_cli`
+doesn't expose. `naabu`'s `passive` option (Shodan InternetDB, no API
+key needed) is a genuinely no-touch alternative worth preferring when
+this phase's active touch isn't yet warranted. Follow up open ports of
+interest with `nmap` for deeper service detection. `nmap` now runs privileged (`run_as_root` in its own
 docker policy) and exposes nearly all of Nmap's real scan techniques, not
 just `connect_scan` — default to a scoped, single-purpose scan
 (`service_detection`, the default SSH-only `nse_scripts`) rather than
@@ -232,7 +239,8 @@ built from.
   engagement actually need, not just the manifest default.** Several
   plugins expose real tunables for exactly this:
   `feroxbuster`/`kiterunner`/`httpx`/`nuclei` `threads`/`concurrency`/`jobs`,
-  `feroxbuster`/`httpx`/`nuclei`/`subfinder`/`dnsx` `rate_limit`,
+  `feroxbuster`/`httpx`/`nuclei`/`subfinder`/`dnsx` `rate_limit`, `naabu`'s
+  own `threads`/`rate`,
   `httpx`/`nuclei`/`gowitness` `timeout`/`delay`, `nmap`'s
   `timing_template` (`0`-`1` trades speed for IDS/network evasion; `4`-`5`
   is fast and noisy), and `testssl`'s own built-in `sneaky` and

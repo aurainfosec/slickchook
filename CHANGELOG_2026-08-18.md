@@ -116,3 +116,66 @@
   rebuild confirming the `setfacl` calls are present in the built
   package's extracted postinst (`dpkg-deb -e`). Live re-verification
   (confirm the fixup succeeds cleanly end-to-end) pending redeploy.
+
+- Expanded the `naabu` plugin from 5 options to nearly all of Naabu's
+  real functionality, matching the same "add everything" scope as the
+  `nmap` expansion earlier today. Researched against Naabu's actual
+  source (`pkg/runner/options.go`/`validate.go`, `pkg/scan/option.go`,
+  `pkg/privileges/privileges_linux.go`, `pkg/runner/nmap.go`) rather
+  than guessed from prose, since no local Go toolchain/docker was
+  available in this sandbox to run the real binary directly.
+  Corrected a real, pre-existing bug in this manifest's own
+  description: it claimed "unprivileged TCP CONNECT mode" while the
+  actual default has always been `scan_type=s` (SYN).
+  Notable findings baked into the new manifest:
+  - `scan_type` takes the literal strings `s`/`c`, not the words
+    `SYN`/`CONNECT`, despite what naabu's own help text implies -
+    confirmed against `pkg/scan/option.go`'s `TypeSyn`/`TypeConnect`
+    constants.
+  - Unlike `nmap`, SYN scan here checks for the `NET_RAW` Linux
+    capability directly (not just root) and gracefully falls back to
+    CONNECT with a log line rather than hard-failing - most of Naabu's
+    functionality doesn't need the `run_as_root` treatment `nmap`
+    needed. The one exception: `discovery_only` (`-sn`,
+    host-discovery-only mode) is confirmed in Naabu's own
+    `ValidateOptions` to hard-error ("sudo access required") without
+    real root. Set `run_as_root = true` anyway (cheap now that the ACL
+    fix from the `nmap` work is already generic, not nmap-specific) so
+    that works too, and so the new `nmap_cli` option's internal nmap
+    follow-up also gets full privileged functionality (e.g. OS
+    detection), not just Naabu's own scan.
+  - `nmap_cli` (e.g. `"nmap -sV"`) runs a real nmap invocation as a
+    follow-up pass on Naabu's discovered ports, merging service/
+    version/OS results back in - the official `projectdiscovery/naabu`
+    image bundles nmap + nmap-scripts specifically for this, so no
+    extra Dockerfile work was needed.
+  - `passive` (Shodan InternetDB, confirmed no API key required - a
+    free public endpoint distinct from full Shodan) is a genuinely
+    no-touch discovery alternative, worth calling out given this
+    fleet's existing OSINT-first phasing.
+  - `service_discovery`/`service_version` are deliberately not
+    exposed: confirmed in Naabu's own source that these currently
+    return a hard "not implemented" error - present as flags upstream,
+    non-functional, not a gap on our part.
+  - ProjectDiscovery Cloud Platform upload flags (`-auth`/
+    `-dashboard`/`-team-id`/etc.) are deliberately excluded entirely -
+    silently uploading authorized scan data to a third-party SaaS by
+    default would be a real data-handling concern, not just low value.
+  - Added `-no-stdin`/`-no-color` to `fixed_args` alongside the
+    existing `-silent`: this fleet's runner never pipes stdin to a
+    plugin container, and color codes are pure noise in a captured
+    artifact.
+  Bumped `memory` 512m→1g, `timeout_seconds` 600→1800, and `/tmp`
+  tmpfs 64m→128m given the much wider scan surface and the added
+  `nmap_cli` follow-up weight.
+  Updated `SKILL.md`'s Phase 2 guidance (the old "unprivileged TCP
+  CONNECT" description was stale there too) and the §3 tunables
+  bullet to mention `naabu`'s own `threads`/`rate`.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. This is a manifest-only change (no core Rust
+  touched - `run_as_root`/the ACL fix already exist from the `nmap`
+  work) - `slickchook-plugin install plugins/naabu` is sufficient, no
+  full package rebuild needed. Live verification (a real scan
+  exercising `scan_type=s` and `nmap_cli`) still pending that install,
+  since this sandbox has no docker access to confirm beyond the
+  option-schema level.
