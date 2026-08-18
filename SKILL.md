@@ -133,14 +133,19 @@ Feed Phase 1's discovered hostnames into `dnsx` (resolve to records/IPs)
 and `naabu` (unprivileged TCP CONNECT port discovery) in parallel across
 hosts; if `shodan-host` is configured, run it per resolved IP too — a
 passive, no-touch data source you're already positioned to use once you
-have the IPs. Follow up open ports of interest with `nmap` for deeper service
-detection (only enable `nse_scripts` categories beyond the SSH-only default,
-or raw-packet options, if the engagement specifically calls for them - a
-broader category like `vuln` or `default` is much noisier/slower than the
-default). Add `no_ping` if the target's host discovery/ICMP is known or
-suspected to be filtered. `rawping` is a lightweight reachability
-sanity check, not a substitute for the above — see §3 for when (and when
-not) to bother running it at all.
+have the IPs. Follow up open ports of interest with `nmap` for deeper
+service detection. `nmap` now runs privileged (`run_as_root` in its own
+docker policy) and exposes nearly all of Nmap's real scan techniques, not
+just `connect_scan` — default to a scoped, single-purpose scan
+(`service_detection`, the default SSH-only `nse_scripts`) rather than
+reaching for `aggressive`/broader `nse_scripts` categories (`vuln`,
+`default`) or evasion options (`fragment_packets`, `decoys`,
+`spoof_source`, etc.) unless the engagement specifically calls for them —
+those are much noisier/slower/more intrusive than a targeted scan, not a
+routine default. Add `no_ping` if the target's host discovery/ICMP is
+known or suspected to be filtered. `rawping` is a lightweight
+reachability sanity check, not a substitute for the above — see §3 for
+when (and when not) to bother running it at all.
 
 **Phase 3 — Web surface discovery (parallel per live HTTP(S) host)**
 Once Phase 2 confirms live web services, run `httpx` with `tech_detect`
