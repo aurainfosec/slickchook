@@ -80,3 +80,41 @@
   SSH-only default.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Added a new `subfaster` plugin (melvinsh/subfaster, MIT-licensed fork
+  of ProjectDiscovery's subfinder tuned purely for speed - same
+  passive-source engine, curated fast keyless sources by default,
+  no update-check network call, HTTP keep-alive). No official Docker
+  image exists, so `plugins/subfaster/Dockerfile` builds it from source
+  (`go install ... @v2.18.0`, pinned rather than `@latest`) on top of a
+  minimal alpine base, matching the git-clone/go-install pattern already
+  used by `gospider`/`kiterunner` in this fleet. `ENV HOME=/tmp` because
+  the container runs as UID 65534 with no /etc/passwd entry, and
+  subfaster tries to read/write its own config under `$HOME/.config` -
+  the same fix already applied to `wpscan`/`shodan-host`/`shodan-search`
+  earlier this session.
+  Downloaded the real v2.18.0 Linux release binary directly (no docker
+  access in this sandbox) to verify every flag against its actual `-h`
+  output rather than the README's prose, matching the standing rule
+  after a couple of wrong guesses earlier in this fleet's history.
+  Notably: unlike `subfinder`'s plugin, no `fixed_args` are needed here
+  at all - `-silent` and disabling the update check are already
+  subfaster's own defaults, not something this manifest has to force.
+  Also notably: there is no `rate_limit` option, because upstream
+  removed rate-limiting entirely (documented in its own README as a
+  deliberate simplification versus subfinder). Exposed `active`
+  (resolve-and-drop-dead-entries) as an explicit option with a
+  description flagging that it's active reconnaissance despite living
+  in an otherwise fully passive tool, and `max_time_minutes` with a
+  direct callout to the wpscan enumerate-everything timeout lesson
+  learned earlier - raising subfaster's own internal time budget without
+  also raising this plugin's `timeout_seconds` risks the exact same
+  outer-container-kills-it-first failure.
+  Updated SKILL.md's Phase 1 to mention `subfaster` alongside
+  `subfinder` (not replacing it) and to keep `active` off during the
+  passive phase.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live verification (image build + a real scan)
+  still pending, since installing a brand-new plugin - unlike the
+  binary/manifest changes above - needs `slickchook-plugin install
+  plugins/subfaster` run on the host, which this sandbox has no
+  privileges to do itself.

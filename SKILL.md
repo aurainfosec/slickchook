@@ -103,9 +103,15 @@ what decides which specific hosts/URLs/ports to feed into the next.
 
 **Phase 1 — Passive enumeration (parallel, no interaction with target infrastructure beyond public/third-party sources)**
 Run together via `start_plugin`, since none depend on each other:
-`subfinder`, `amass`, `sublert`, `spiderfoot`, `waymore` (subdomains,
-DNS/asset data, certificate-transparency history, broad OSINT, and archived
-URLs respectively). If a code repository is in scope, also start
+`subfaster` (or `subfinder` — same underlying passive-source engine;
+`subfaster` is a speed-focused fork and the faster default choice for the
+same job, kept alongside `subfinder` rather than replacing it), `amass`,
+`sublert`, `spiderfoot`, `waymore` (subdomains, DNS/asset data,
+certificate-transparency history, broad OSINT, and archived URLs
+respectively). Leave `subfaster`'s `active` option off in this phase — it
+resolves and drops dead subdomains, which is active reconnaissance, not
+passive OSINT; that belongs in Phase 2 alongside `dnsx`/`naabu` if you want
+it at all. If a code repository is in scope, also start
 `trufflehog` here (secret scanning) — it's independent of the domain-recon
 tools above. If `shodan-search` is configured and the engagement names a
 specific org or domain, an org/domain-scoped query (e.g. `org:"Example

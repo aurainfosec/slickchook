@@ -1,0 +1,90 @@
+name = "subfaster"
+container = "slickchook-plugin/subfaster:local"
+description = "Fast passive subdomain enumeration for one or more authorized domains, using melvinsh/subfaster (a speed-focused fork of ProjectDiscovery's subfinder, same passive-source engine). Unlike this repo's subfinder plugin, subfaster is silent and skips its update check by default - no fixed_args needed to get that behavior here. Defaults to seven curated fast keyless sources rather than every source; all_sources broadens to everything (many need API keys that aren't wired up here - see [[secrets]] pattern used by wpscan/shodan for how a real credential would be added if this becomes worth doing). There is no rate_limit option - upstream removed rate-limiting entirely, unlike subfinder. active crosses from passive into active reconnaissance (it resolves each candidate and drops dead ones) - only enable it if the engagement's phase allows touching the target's own DNS infrastructure, not just third-party OSINT sources; this plugin is otherwise a Phase 1 (passive-only) tool. Verified against the real v2.18.0 binary's own -h output, not guessed."
+fixed_args = []
+
+[[options]]
+name = "target"
+description = "Authorized root domain(s) to enumerate. Comma-separated for multiple in one run."
+required = true
+flag = "-d"
+
+[[options]]
+name = "all_sources"
+description = "Use every available source instead of the seven fast keyless defaults. Slower, and most of the extra sources need an API key configured via subfaster's own provider-config.yaml, which this plugin does not currently populate - expect little benefit over the default without that."
+required = false
+flag = "-all"
+
+[[options]]
+name = "sources"
+description = "Comma-separated list of specific sources to use instead of the fast-default set, e.g. crtsh,virustotal. Run subfaster -ls (not currently exposed here) to see the full source list; the seven fast defaults are thc, submd, crt, shodanct, rapiddns, hackertarget, sitedossier."
+required = false
+flag = "-s"
+
+[[options]]
+name = "exclude_sources"
+description = "Comma-separated list of sources to skip, e.g. hackertarget (useful if it's hitting its free quota - check stats for that)."
+required = false
+flag = "-es"
+
+[[options]]
+name = "recursive_sources"
+description = "Use only sources capable of recursive subdomain enumeration."
+required = false
+flag = "-recursive"
+
+[[options]]
+name = "active"
+description = "Resolve each candidate subdomain and keep only the ones that are actually live, dropping dead DNS entries. This is active reconnaissance, not passive OSINT - it sends real DNS queries to resolve the target's own subdomains, unlike the default source-only mode. Only enable if the engagement phase you're in allows touching the target's DNS infrastructure directly."
+required = false
+flag = "-active"
+
+[[options]]
+name = "include_ip"
+description = "Include each subdomain's resolved IP in the output. Only takes effect together with active - resolution has to actually happen first."
+required = false
+flag = "-oI"
+
+[[options]]
+name = "resolver_threads"
+description = "Concurrent resolver threads. Only relevant together with active; omit to use subfaster's own default (10)."
+required = false
+flag = "-t"
+
+[[options]]
+name = "source_timeout_seconds"
+description = "Per-source timeout in seconds. Omit to use subfaster's own default (10)."
+required = false
+flag = "-timeout"
+
+[[options]]
+name = "max_time_minutes"
+description = "Overall enumeration time budget in minutes, enforced by subfaster itself - separate from this plugin's own container-level timeout_seconds. Omit to use subfaster's own default (10 minutes). Raising this much past 10 without also raising timeout_seconds risks the container being killed by the outer timeout before subfaster's own internal one would have stopped it - the same mistake this fleet hit with wpscan's enumerate-everything mode taking longer than expected."
+required = false
+flag = "-max-time"
+
+[[options]]
+name = "json_output"
+description = "Emit newline-delimited JSON instead of plain subdomain-per-line text."
+required = false
+flag = "-oJ"
+
+[[options]]
+name = "collect_sources"
+description = "Include which source(s) found each subdomain in the output. Only takes effect together with json_output."
+required = false
+flag = "-cs"
+
+[[options]]
+name = "stats"
+description = "Print per-source statistics at the end (goes to stderr, not the subdomain list on stdout) - shows which sources actually returned results versus hit an error, quota limit, or captcha block (e.g. hackertarget's free quota, sitedossier's captcha). Useful for understanding an unexpectedly short result list without guessing."
+required = false
+flag = "-stats"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
