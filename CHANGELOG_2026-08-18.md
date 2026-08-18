@@ -85,3 +85,34 @@
   detection, etc.) actually working end-to-end inside the real
   container is still pending that redeploy, since this sandbox has no
   docker access to confirm beyond the argument-parsing/mechanics level.
+
+- Fixed the artifact-permission-fixup step failing outright for
+  root-mode plugins (`nmap`, from the change above): live-verified a
+  real `-sS`/`-sV`/`-O` scan against `scanme.nmap.org` after the
+  redeploy - the scan itself succeeded perfectly (real open ports, OS
+  fingerprint, NSE script output), but the fixup step logged `find:
+  /artifacts: Permission denied` even running as root. Root cause,
+  confirmed against the real host rather than guessed: `/var/lib/
+  slickchook/artifacts` carries a POSIX ACL (`setfacl -m u:65534:rwx`,
+  in `scripts/install-ubuntu.sh`) granting the fleet's usual
+  unprivileged uid explicit access, but no equivalent entry for uid 0 -
+  and a `--cap-drop ALL` container's root has no `CAP_DAC_OVERRIDE`, so
+  it's still subject to normal permission bits and falls through to
+  `other::---` with nothing granted.
+  This also surfaced a second, more serious latent bug while tracking
+  it down: `scripts/build-deb.sh`'s postinst has **no ACL setup at
+  all** for this directory, unlike `install-ubuntu.sh`. This host had
+  clearly been bootstrapped via `install-ubuntu.sh` at some point (the
+  same shape of gap as the runner setgid bug found earlier this
+  session) - a genuinely fresh `.deb`-only deployment would have no
+  ACL whatsoever, meaning even the ordinary unprivileged uid 65534
+  case would fail on literally the first plugin run, not just the new
+  root-mode one.
+  Added the uid 0 grant to `install-ubuntu.sh`'s existing setfacl
+  calls, and added the full ACL setup (both uid 65534 and uid 0, plus
+  the matching default-ACL entries so new per-run subdirectories
+  inherit them) to `build-deb.sh`'s postinst, which never had it.
+  Verified: `bash -n` on both scripts, and a full `./scripts/build-deb.sh`
+  rebuild confirming the `setfacl` calls are present in the built
+  package's extracted postinst (`dpkg-deb -e`). Live re-verification
+  (confirm the fixup succeeds cleanly end-to-end) pending redeploy.

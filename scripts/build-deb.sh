@@ -60,6 +60,18 @@ id slickchook >/dev/null 2>&1 || adduser --system --ingroup slickchook --home /v
 install -d -o root -g root -m 0755 /opt/slickchook
 install -d -o root -g slickchook -m 0750 /etc/slickchook /var/lib/slickchook/plugins
 install -d -o slickchook -g slickchook -m 0750 /var/lib/slickchook/artifacts
+# Plugin containers run as uid 65534 (unprivileged, the fleet default) or
+# uid 0 (root, only for a plugin whose manifest sets
+# DockerPolicy.run_as_root - e.g. nmap, whose raw-socket features need
+# actual root). Neither uid owns this directory (the slickchook service
+# user does), so without an explicit ACL grant here, both would get a
+# bare permission denied trying to read/write their own run's artifacts -
+# confirmed live for the uid 0 case: a root process without
+# CAP_DAC_OVERRIDE (stripped by --cap-drop ALL) is still subject to
+# normal permission bits. The `d:` entries are default ACLs so every
+# newly-created per-run subdirectory inherits both grants automatically.
+setfacl -m u:65534:rwx,u:0:rwx,m::rwx /var/lib/slickchook/artifacts
+setfacl -m d:u:65534:rwx,d:u:0:rwx,d:m::rwx /var/lib/slickchook/artifacts
 # Only slickchook-runner talks to the Docker daemon - the main service user
 # is never added to the docker group. Setgid + docker group ownership on
 # this one binary is what grants that, scoped to just the runner process
