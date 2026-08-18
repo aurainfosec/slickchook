@@ -214,8 +214,16 @@ find "${STATE_DIR}/plugins" -type d -exec chmod 0750 {} +
 find "${STATE_DIR}/plugins" -type f -exec chmod 0640 {} +
 
 install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0750 "${STATE_DIR}/artifacts"
-setfacl -m u:65534:rwx,m::rwx "${STATE_DIR}/artifacts"
-setfacl -m d:u:65534:rwx,d:m::rwx "${STATE_DIR}/artifacts"
+# uid 65534 covers the fleet's usual unprivileged plugin containers; uid 0
+# covers the few plugins whose manifest sets DockerPolicy.run_as_root
+# (e.g. nmap, whose raw-socket features need actual root - see that
+# field's doc comment in src/plugin_manager.rs). Without the uid 0 entry,
+# a root-mode plugin's artifact-permission-fixup step gets a bare
+# "Permission denied" trying to even traverse this directory, since a
+# root process without CAP_DAC_OVERRIDE (stripped by --cap-drop ALL) is
+# still subject to normal permission bits, confirmed live.
+setfacl -m u:65534:rwx,u:0:rwx,m::rwx "${STATE_DIR}/artifacts"
+setfacl -m d:u:65534:rwx,d:u:0:rwx,d:m::rwx "${STATE_DIR}/artifacts"
 
 if [[ -f ${UNIT_PATH} ]] && ! cmp -s "${SOURCE_DIR}/deploy/slickchook.service" "${UNIT_PATH}"; then
   ensure_backup_dir
