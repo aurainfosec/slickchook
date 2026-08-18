@@ -64,6 +64,15 @@ the final artifact-collection step.
   most recent first. **Call this before running anything against a target**
   you may have already touched this engagement (or a prior one) — don't
   redo work that's already there and still fresh.
+- `purge_runs_by_target` — permanently deletes every recorded run and its
+  artifact files for one exact target match. There is no automatic
+  cleanup of old artifacts; they accumulate until explicitly purged. If
+  `list_runs_by_target` turns up existing history for a target you're
+  about to (re)engage, **ask the operator** whether to delete it, keep it,
+  or just continue (new runs simply add alongside whatever's already
+  there — nothing needs to be deleted to keep working). Never call
+  `purge_runs_by_target` without that explicit confirmation; it cannot be
+  undone.
 - `list_run_artifacts` / `read_artifact` — list and read back a specific
   past run's files by `run_id`, independent of whether you triggered that
   run yourself. `list_run_artifacts` lists every file recursively,

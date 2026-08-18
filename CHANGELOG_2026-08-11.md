@@ -80,3 +80,34 @@
   SSH-only default.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Added `purge_runs_by_target`, a new MCP tool to let an operator delete
+  old artifacts on request rather than leaving them to accumulate
+  forever - there was previously no cleanup mechanism of any kind.
+  Deliberately not an automatic/silent GC (e.g. a systemd-timer
+  age-based sweep): the request was specifically for something closer
+  to Burp Suite's "delete this project / keep it / just continue"
+  choice, and since slickchook is a headless daemon with no terminal UI
+  to show that prompt in, the choice is instead surfaced through the
+  connected AI client - it calls list_runs_by_target when a target with
+  existing history is about to be (re)engaged, asks the operator
+  whether to delete/keep/continue, and only calls
+  purge_runs_by_target if the operator says delete. The tool's own
+  description states this requirement explicitly (irreversible, human
+  confirmation required, never call automatically) so any MCP client
+  reading it has that context without relying on SKILL.md alone.
+  Implementation: `PostgresStore::delete_runs_by_target` (src/storage.rs)
+  deletes matching `plugin_runs` rows and returns their `artifact_dir`s,
+  then removes each directory on disk, reusing the same
+  `canonical_contained` symlink-escape protection `resolve_run_artifact_dir`
+  already uses. A row still counts as deleted once its DB entry is gone
+  even if the directory removal itself fails (reported in the summary's
+  `errors`, not silently dropped) - matches `list_runs_by_target`'s own
+  guarantee that a purged run won't show up again either way.
+  Updated SKILL.md with the keep/delete/continue guidance next to the
+  existing `list_runs_by_target` bullet.
+  Verified: `cargo build --locked --release --bins` and `cargo test`
+  (14/14 - 12 lib + 2 main.rs, including `registers_all_mcp_tools` now
+  covering the new tool) clean. Live verification pending a full binary
+  redeploy (same `build-deb.sh`/`apt install` path as the schema and
+  docker-permission fixes earlier today).
