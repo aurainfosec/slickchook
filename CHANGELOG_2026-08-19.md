@@ -225,3 +225,52 @@
   the manifest - not just assumed the design would work. Full
   container-level verification via the actual MCP server still
   pending install, since this sandbox has no docker access.
+
+- Substantially expanded `waymore` to actually use its main
+  differentiator, prompted by a direct request to make it "look more
+  extensively for historic information." The previous manifest
+  hardcoded `-mode U --stream` (URLs only) and exposed only 4 options -
+  meaning the entire reason to prefer this tool over a plain archived-URL
+  lister (downloading the real archived page *content* - developer
+  comments, removed parameters, old endpoints - not just URLs) was
+  unused. Fetched the exact v8.9 source (`gh api
+  .../xnl-h4ck3r/waymore/contents/waymore/waymore.py`, no local pip
+  available in this sandbox) and read its real `argparse` definitions
+  rather than trusting README/marketing text, per this week's standing
+  "verify against real behavior" rule.
+  Changed the default `mode` to `B` (URLs + downloaded responses) and
+  exposed `~25` more real options: response-download tuning (`limit`,
+  `capture_interval`, `timeout`, `processes`, `retries`), targeted
+  filtering (`match`/`filter` by status code and MIME type,
+  `keywords_only`, `regex_after` applied against actual downloaded
+  content - directly useful for e.g. finding leaked private keys across
+  archived pages instead of reviewing everything by hand),
+  `output_inline_js` (pulls combined inline JS out of downloaded
+  responses), per-source exclude flags, Common Crawl collection depth
+  (`limit_collections`), and `check_only` (dry-run request/time
+  estimate before committing to a large run).
+  Found and fixed a real mechanical bug before it ever shipped: with
+  `HOME=/tmp` already set, Waymore's own default output location for
+  downloaded responses resolves to `/tmp/.config/waymore` - writable,
+  but entirely outside `/artifacts`, so downloaded content would never
+  have been retrievable via `read_artifact`/`list_run_artifacts`.
+  Fixed by defaulting `-oU`/`-oR` to fixed `/artifacts/...` paths.
+  Also confirmed via source that Waymore's three optional source API
+  keys (URLScan, VirusTotal, Intelligence X) are read only from its own
+  `config.yml`, never an environment variable - this fleet's usual
+  `[[secrets]]` mechanism can't reach them without a new
+  config-templating wrapper, which wasn't built here (out of scope for
+  this pass) - documented clearly in the plugin description so this
+  is a known, deliberate gap rather than a silent one.
+  Set `limit`'s default to 200, well below Waymore's own default of
+  5000 - real archive.org/URLScan rate limiting means a large response-
+  download count can take a very long time regardless of container
+  timeout, so raised `timeout_seconds` to 2700 (45 min) to give a
+  `mode=B` run real headroom, matching the `wpscan`-precedent lesson
+  that an exhaustive-by-default tool needs a generous timeout rather
+  than a restrictive one paired with a short deadline.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (manifest-only change, no core Rust touched).
+  No docker access in this sandbox to build/run the image locally;
+  live verification (a real `mode=B` run producing retrievable
+  downloaded responses under `/artifacts`) pending install.
