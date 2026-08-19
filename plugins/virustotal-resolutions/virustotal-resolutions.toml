@@ -1,0 +1,47 @@
+name = "virustotal-resolutions"
+container = "slickchook-plugin/virustotal-resolutions:local"
+description = "Looks up VirusTotal's historical DNS resolution records for one authorized domain via the official vt-cli tool (github.com/VirusTotal/vt-cli, built from source and pinned to v1.3.1 - no official Docker image exists). Each returned record includes the IP it resolved to and the date range VirusTotal observed that resolution - useful for finding an IP a domain resolved to before it went behind a WAF/CDN (e.g. RedShield, Cloudflare), to check whether that origin is still directly reachable. vt-cli's own --apikey flag takes the key as a literal CLI argument, which would otherwise leak into this fleet's own argv logging (stderr.txt) - wrapped in an entrypoint script that reads VT_API_KEY from the environment instead and passes it internally, matching the same pattern used for wpscan/shodan-host/shodan-search. Requires VT_API_KEY configured via [[secrets]] (see RUNNER.md's \"Configuring plugin API keys and secrets\"). VirusTotal's free Public API tier is rate-limited to 4 requests/minute and 500/day - a 429 response is an expected rate-limit hit on that tier, not a bug. Domain resolution history only; this does not submit or scan anything, and the domain itself is never uploaded anywhere it isn't already known to VirusTotal."
+fixed_args = ["domain", "resolutions", "--format", "json", "--silent"]
+
+[[secrets]]
+env_var = "VT_API_KEY"
+description = "VirusTotal API key (from virustotal.com/gui/my-apikey after signing up). The free Public API tier works for this lookup but is rate-limited to 4 requests/minute and 500/day."
+required = true
+
+[[options]]
+name = "limit"
+description = "Maximum number of historical resolution records to return. Omit for vt-cli's own default (10) - raise it to see further back in the domain's resolution history."
+required = false
+flag = "--limit"
+
+[[options]]
+name = "cursor"
+description = "Pagination cursor from a previous call's response, for continuing past its result set."
+required = false
+flag = "--cursor"
+
+[[options]]
+name = "include_fields"
+description = "Comma-separated field-name patterns to include in each result, trimming the response to just what's needed (e.g. ip_address,date)."
+required = false
+flag = "--include"
+
+[[options]]
+name = "exclude_fields"
+description = "Comma-separated field-name patterns to exclude from each result."
+required = false
+flag = "--exclude"
+
+[[arguments]]
+name = "target"
+description = "Authorized domain to look up historical DNS resolutions for."
+required = true
+position = 1
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]

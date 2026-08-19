@@ -154,7 +154,11 @@ DNS resolution and TCP/UDP port discovery, in parallel across hosts. If a
 passive, no-touch host/IP-intelligence plugin is installed (e.g. one
 backed by a third-party device/asset database), run it per resolved IP
 too — genuinely no-touch data you're already positioned to use once you
-have the IPs. A port-discovery plugin that can also invoke a deeper
+have the IPs. If a host appears to sit behind a WAF/CDN, a plugin that
+looks up historical DNS resolution records (if installed) can surface an
+IP the domain resolved to before it went behind that WAF/CDN — worth
+checking whether that origin is still directly reachable, which is
+itself a real finding if so. A port-discovery plugin that can also invoke a deeper
 service-detection tool as a follow-up pass (check its declared options)
 often removes the need for a separate later call to that deeper tool
 entirely. Follow up open ports of interest with whatever installed plugin
