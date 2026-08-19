@@ -1,0 +1,65 @@
+name = "brave-dork-search"
+container = "slickchook-plugin/brave-dork-search:local"
+description = "Runs a dork-style web search against one authorized target domain via the Brave Search API - a genuinely independent search index (not a Google wrapper), avoiding the CAPTCHA/blocking problems raw Google-search scraping runs into from a datacenter IP. target is always mandatory and is structurally enforced, not just documented: this plugin always prepends `site:<target>` to whatever dork text is given, so there is no way to run an unscoped, whole-internet query with it. Only a subset of classic Google-dork operators are actually confirmed to work against this API (per Brave's own query-syntax docs): `site:`, `filetype:`, quoted exact phrases, and `-exclusion`. `intitle:`, `inurl:`, and `intext:` - which most entries in the Google Hacking Database actually rely on - are not documented as supported here and are assumed not to work; don't expect Google-dork syntax to translate 1:1. Useful real patterns within what's actually supported: `filetype:sql` / `filetype:env` / `filetype:bak` / `filetype:log` for exposed backup/config/log files, a quoted phrase like `\"BEGIN RSA PRIVATE KEY\"` or `\"DB_PASSWORD\"` for leaked-secret content, combined with `-exclusion` terms to cut down false positives. freshness narrows to recently-indexed content specifically (pd=past day, pw=past week, pm=past month, py=past year) - genuinely useful here since a newly-exposed file is more interesting than one that's been indexed and presumably already found for years. extra_snippets returns 5 extra text excerpts per result, often enough to spot the actual leaked content directly without needing to fetch the page. No genuinely free tier exists - Brave's Search API is $5/1000 requests with $5 of free credit applied monthly (~1000 free queries), and a credit card must be on file even to use that free credit, capped at 50 requests/second."
+fixed_args = []
+
+[[options]]
+name = "target"
+description = "Authorized domain to scope every search to - always prepended as site:<target>, this can't be searched unscoped."
+required = true
+flag = "--target"
+
+[[options]]
+name = "dork"
+description = "The dork query text itself, using only the operators actually confirmed supported by this API: site:, filetype:, quoted phrases, and -exclusion. Don't use intitle:/inurl:/intext: - they aren't confirmed to work here. See this plugin's own description for real, useful examples."
+required = true
+flag = "--dork"
+
+[[options]]
+name = "freshness"
+description = "Restrict to recently-indexed content: pd (past day), pw (past week), pm (past month), py (past year), or omit for no restriction."
+required = false
+flag = "--freshness"
+
+[[options]]
+name = "country"
+description = "2-letter country code to bias results toward."
+required = false
+flag = "--country"
+
+[[options]]
+name = "safesearch"
+description = "off, moderate, or strict content filtering."
+required = false
+flag = "--safesearch"
+
+[[options]]
+name = "count"
+description = "Results per page, up to 20."
+required = false
+flag = "--count"
+
+[[options]]
+name = "offset"
+description = "Page offset for pagination, up to 9."
+required = false
+flag = "--offset"
+
+[[options]]
+name = "extra_snippets"
+description = "Return up to 5 extra text excerpts per result, often enough to see the actual matched content without fetching the page."
+required = false
+flag = "--extra-snippets"
+
+[[secrets]]
+env_var = "BRAVE_API_KEY"
+description = "Brave Search API key (api-dashboard.search.brave.com)."
+required = true
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 30
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
