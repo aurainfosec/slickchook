@@ -211,3 +211,41 @@
   Verified: swept the rewritten file for every current plugin name
   (`grep` across the full fleet) - zero hits. Documentation-only
   change, no build/test impact.
+
+- Added a new `virustotal-resolutions` plugin for origin-IP/WAF-bypass
+  discovery: looks up VirusTotal's historical DNS resolution records
+  for an authorized domain, surfacing an IP it resolved to before it
+  went behind a WAF/CDN (e.g. RedShield) - useful for checking whether
+  that origin is still directly reachable. Researched real alternatives
+  first (SecurityTrails, Farsight DNSDB, Microsoft Defender TI/
+  PassiveTotal, Censys, BinaryEdge, CIRCL, Onyphe, ViewDNS.info) before
+  picking VirusTotal: it has a genuine free-tier API (4 req/min, 500/day)
+  returning real dated historical resolutions, unlike most of the
+  alternatives surveyed (DNSDB/Defender TI are enterprise-sales-only,
+  BinaryEdge shut down entirely in March 2025, Censys's free tier
+  excludes historical data, CIRCL requires manual vetting with no
+  self-serve signup).
+  This also investigated why `shodan-search` had seemed flaky in
+  testing: confirmed (via Shodan's own current billing/API docs, and
+  corroborated by multiple open issues on the exact Python library our
+  plugin shells out to) that `/shodan/host/search` costs a query
+  credit per call, and bare free-tier API keys get zero query credits -
+  so a 403 there is expected account-tier behavior, not a bug in the
+  plugin. Not changed in this PR; noted here since it's why this
+  research happened in the first place.
+  Built from source (`go install github.com/VirusTotal/vt-cli/vt@v1.3.1`,
+  the official VirusTotal CLI, pinned rather than `@latest`) since no
+  official Docker image exists. Its `--apikey` flag only accepts the
+  key as a literal CLI argument (confirmed by reading vt-cli's own
+  source - it never binds Viper's automatic environment-variable
+  support), which would otherwise leak the key into this fleet's own
+  argv logging (`stderr.txt`) - wrapped in an entrypoint script that
+  reads `VT_API_KEY` from the environment instead and passes it
+  internally, the same pattern already used for
+  `wpscan`/`shodan-host`/`shodan-search`.
+  Updated `SKILL.md`'s Phase 2 with a role-based (not name-specific)
+  mention of this capability, consistent with the plugin-agnostic
+  rewrite just landed.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live verification (a real domain lookup)
+  pending install, since this sandbox has no docker access.
