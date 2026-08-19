@@ -51,3 +51,28 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live verification (a real crawl) pending
   install, since this sandbox has no docker access.
+
+- Fixed two real bugs in `katana` found on the very first live test
+  against `scanme.nmap.org`:
+  1. `known_files` is a single-choice value, not a comma-joinable
+     list - passing `"robotstxt,sitemapxml"` errored outright
+     (`invalid value ... allowed values are , all, robotstxt,
+     sitemapxml`). The `--help` text's `(all,robotstxt,sitemapxml)`
+     formatting looked identical to other options in this fleet that
+     genuinely do accept a joined list (e.g. naabu's `ip_version`),
+     but isn't one here - corrected the option's description to say
+     so explicitly, confirmed live.
+  2. Every call failed with `Could not read flags: cause="no such
+     file or directory"` - Katana tries to read a default config file
+     relative to `$HOME` at startup, which is unset under this
+     fleet's usual unprivileged UID (no matching /etc/passwd entry) -
+     the same class of bug already hit and fixed for
+     `wpscan`/`shodan-host`/`subfaster`, just missed here since this
+     plugin had been referencing the official image directly with no
+     wrapper at all. Added a thin `Dockerfile`
+     (`FROM projectdiscovery/katana:v1.7.0` + `ENV HOME=/tmp`) and
+     changed `container` to the resulting local image - the smallest
+     possible fix, no other customization needed.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live re-verification (a real crawl succeeding
+  end-to-end) pending redeploy.
