@@ -184,3 +184,28 @@
   path, not a plugin-manifest reinstall. Live verification (a real
   `list_runs_by_target` call showing input_json) still pending
   redeploy.
+
+- Added a new `cewl` plugin (CeWL - Custom Word List generator) -
+  spiders one authorized site's own vocabulary (company jargon,
+  product names, staff names in document metadata) into a
+  target-specific wordlist, rather than a generic dictionary.
+  Genuinely dual-purpose: the same output feeds both username
+  permutation and password-guessing lists, since people build both out
+  of the same words that show up on their own site. Every flag
+  verified directly against the real script's own GetoptLong
+  definitions and usage text (`cewl.rb` at the pinned 6.2.1 tag) rather
+  than guessed. No fixed-version published image exists to reference
+  directly (Docker Hub has no digininja/cewl repository at all, and
+  the GHCR publish workflow uses a moving tag scheme) - built from
+  source instead, closely mirroring upstream's own reference
+  Dockerfile. Confirmed the license directly from the script's own
+  header (CC-BY-SA 2.0 or GPL-3+) since the repo carries no separate
+  LICENSE file. `exclude` (a file-based path-exclusion list) isn't
+  exposed - no mechanism in this fleet to inject an arbitrary runtime
+  file into a container; `allowed` (an inline regex) is exposed
+  instead as the closest equivalent achievable without one.
+  Updated `SKILL.md` with a role-based mention in Phase 5, per the
+  standing plugin-agnostic-methodology rule.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live install/build verification pending, since
+  this sandbox has no docker access.
