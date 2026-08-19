@@ -81,9 +81,13 @@ the final artifact-collection step.
   `list_plugins`'s output) — see §3 on parallelism, which is where most of
   the time savings in this skill actually come from.
 - `list_runs_by_target` — every past run recorded against a target string,
-  most recent first. **Call this before running anything against a target**
-  you may have already touched this engagement (or a prior one) — don't
-  redo work that's already there and still fresh.
+  most recent first, including each run's exact `input_json` (the same
+  options it was actually called with). **Call this before running
+  anything against a target** you may have already touched this
+  engagement (or a prior one) — check `input_json` to tell whether a
+  prior run actually used the options you're about to use (safe to reuse
+  its results) or different ones (worth re-running), without needing a
+  separate `read_artifact` call just to find out.
 - `purge_runs_by_target` — permanently deletes every recorded run and its
   artifact files for one exact target match. There is no automatic
   cleanup of old artifacts; they accumulate until explicitly purged. If
