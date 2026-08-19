@@ -1,0 +1,107 @@
+name = "cupp"
+container = "slickchook-plugin/cupp:local"
+description = "Builds a personalized password wordlist from real details about one specific, authorized individual (CUPP - Common User Passwords Profiler) - people commonly build passwords from their own name, birthdate, partner/pet/child's name, employer, or a mix of these with substitutions, and CUPP encodes exactly those patterns. CUPP's own CLI has no non-interactive/flag-based mode at all for this - its real functionality is only reachable via an interactive stdin prompt sequence (confirmed by reading its source: the only other modes are downloading a static leaked-credentials database or expanding an existing wordlist file, neither of which is personalized profiling). This plugin wraps that interactive sequence: the declared options below are this wrapper's own flags, translated internally into the exact prompt-answer sequence CUPP's -i mode expects (confirmed live, including one prompt easy to miss - a final \"Hyperspeed Print?\" question buried in a helper function, not the main interactive() function). No git tag exists for CUPP at all - pinned by commit SHA instead. GPLv3 licensed. Pure local text generation from the supplied fields - no network activity, network is set to none. Only ever use this with details about a person actually in scope for this engagement, with a real basis for testing their credentials - profiling a real individual's password without that authorization is exactly the kind of thing this fleet's own scope discipline exists to prevent."
+fixed_args = []
+
+[[options]]
+name = "name"
+description = "The individual's first name. Required by CUPP itself - the wordlist file is even named after this value."
+required = true
+flag = "--name"
+
+[[options]]
+name = "surname"
+description = "The individual's surname."
+required = false
+flag = "--surname"
+
+[[options]]
+name = "nickname"
+description = "The individual's nickname."
+required = false
+flag = "--nickname"
+
+[[options]]
+name = "birthdate"
+description = "The individual's birthdate, exactly 8 digits, DDMMYYYY (e.g. 15031990). Rejected with a clear error if not exactly 8 digits - CUPP's own interactive mode would otherwise re-prompt in a way this wrapper's synthetic input sequence can't recover from, so it's validated upfront instead."
+required = false
+flag = "--birthdate"
+
+[[options]]
+name = "partner_name"
+description = "The individual's partner's name, if relevant and known."
+required = false
+flag = "--partner-name"
+
+[[options]]
+name = "partner_nickname"
+description = "The individual's partner's nickname."
+required = false
+flag = "--partner-nickname"
+
+[[options]]
+name = "partner_birthdate"
+description = "The individual's partner's birthdate, exactly 8 digits, DDMMYYYY - same validation as birthdate."
+required = false
+flag = "--partner-birthdate"
+
+[[options]]
+name = "child_name"
+description = "The individual's child's name, if relevant and known."
+required = false
+flag = "--child-name"
+
+[[options]]
+name = "child_nickname"
+description = "The individual's child's nickname."
+required = false
+flag = "--child-nickname"
+
+[[options]]
+name = "child_birthdate"
+description = "The individual's child's birthdate, exactly 8 digits, DDMMYYYY - same validation as birthdate."
+required = false
+flag = "--child-birthdate"
+
+[[options]]
+name = "pet_name"
+description = "The individual's pet's name, if known - one of the single most common real-world password sources."
+required = false
+flag = "--pet-name"
+
+[[options]]
+name = "company"
+description = "The individual's employer/company name."
+required = false
+flag = "--company"
+
+[[options]]
+name = "keywords"
+description = "Comma-separated extra words specific to this individual/target worth trying (e.g. a hobby, sports team, or product name) - a plugin that builds a target-specific wordlist by crawling their organization's own site is a good source for these."
+required = false
+flag = "--keywords"
+
+[[options]]
+name = "add_special_chars"
+description = "Also generate variants with special characters appended (single, double, and triple combinations) - substantially increases the wordlist size."
+required = false
+flag = "--special-chars"
+
+[[options]]
+name = "add_random_numbers"
+description = "Also generate variants with common numbers appended."
+required = false
+flag = "--random-numbers"
+
+[[options]]
+name = "leet_mode"
+description = "Also generate leetspeak variants (e.g. e->3, a->4, o->0)."
+required = false
+flag = "--leet-mode"
+
+[docker]
+network = "none"
+memory = "256m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 180

@@ -185,27 +185,43 @@
   `list_runs_by_target` call showing input_json) still pending
   redeploy.
 
-- Added a new `cewl` plugin (CeWL - Custom Word List generator) -
-  spiders one authorized site's own vocabulary (company jargon,
-  product names, staff names in document metadata) into a
-  target-specific wordlist, rather than a generic dictionary.
-  Genuinely dual-purpose: the same output feeds both username
-  permutation and password-guessing lists, since people build both out
-  of the same words that show up on their own site. Every flag
-  verified directly against the real script's own GetoptLong
-  definitions and usage text (`cewl.rb` at the pinned 6.2.1 tag) rather
-  than guessed. No fixed-version published image exists to reference
-  directly (Docker Hub has no digininja/cewl repository at all, and
-  the GHCR publish workflow uses a moving tag scheme) - built from
-  source instead, closely mirroring upstream's own reference
-  Dockerfile. Confirmed the license directly from the script's own
-  header (CC-BY-SA 2.0 or GPL-3+) since the repo carries no separate
-  LICENSE file. `exclude` (a file-based path-exclusion list) isn't
-  exposed - no mechanism in this fleet to inject an arbitrary runtime
-  file into a container; `allowed` (an inline regex) is exposed
-  instead as the closest equivalent achievable without one.
-  Updated `SKILL.md` with a role-based mention in Phase 5, per the
-  standing plugin-agnostic-methodology rule.
+- Added a new `cupp` plugin (CUPP - Common User Passwords Profiler) -
+  builds a personalized password wordlist from real details about one
+  specific, authorized individual (name, birthdate, partner/pet/child's
+  name, employer), encoding the exact patterns people commonly build
+  passwords from. A genuinely novel wrapper pattern for this fleet:
+  CUPP's own CLI has no non-interactive/flag-based mode at all for
+  this - confirmed by reading its source, the only other modes
+  download a static leaked-credentials database or expand an existing
+  wordlist file, neither of which is personalized profiling. Its real
+  functionality is only reachable via an interactive stdin prompt
+  sequence.
+  Rather than skip the tool over this, wrote a small Python entrypoint
+  that translates declared CLI options into the exact prompt-answer
+  sequence CUPP's `-i` mode expects, then feeds it via stdin and execs
+  the real tool. Confirmed the exact sequence by actually running the
+  real script end-to-end with a synthetic stdin, not assumed from
+  source alone - this caught a real gotcha: a final "Hyperspeed
+  Print?" prompt lives in a helper function called at the very end,
+  not in the main interactive() function itself, and is easy to miss
+  from a source read alone. Birthdate fields are validated (exactly 8
+  digits or empty) before construction, since a malformed value would
+  otherwise trigger CUPP's own re-prompt loop in a way this wrapper's
+  one-shot synthetic input can't recover from, desyncing every answer
+  after it.
+  No git tag exists for this repo at all - pinned by commit SHA
+  instead, the only reproducible option available. GPLv3 licensed.
+  `network = "none"` - the `-i` code path used here makes no network
+  calls of its own (confirmed by reading the source: networking is
+  only used by the other, unused modes).
+  Updated `SKILL.md` with a role-based mention in Phase 5 alongside
+  the new `cewl` plugin, per the standing plugin-agnostic-methodology
+  rule.
   Verified: `cargo build --locked --release --bins` and `cargo test
-  --lib` (12/12) clean. Live install/build verification pending, since
-  this sandbox has no docker access.
+  --lib` (12/12) clean. Also ran the actual wrapper script end-to-end
+  against the real cupp.py directly in this sandbox (both a
+  successful full run producing a real 6531-word list, and the
+  malformed-birthdate validation path failing cleanly) before writing
+  the manifest - not just assumed the design would work. Full
+  container-level verification via the actual MCP server still
+  pending install, since this sandbox has no docker access.
