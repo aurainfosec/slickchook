@@ -249,3 +249,16 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live verification (a real domain lookup)
   pending install, since this sandbox has no docker access.
+
+- Fixed `virustotal-resolutions`' Docker build failing outright on
+  install: `go install github.com/VirusTotal/vt-cli/vt@v1.3.1` errored
+  `invalid version: unknown revision vt/v1.3.1`. Root cause, confirmed
+  live: vt-cli's actual git tags are `1.3.1` etc., without the `v`
+  prefix Go's module system requires to recognize a tag as a version
+  at all - the assumption that it followed standard Go tagging
+  convention was wrong. Pinned to the exact commit the `1.3.1` tag
+  points to instead (`c7e4cdbde9778757444d96e6321785fa6972beed`) -
+  equally reproducible, sidesteps the tag-naming mismatch entirely.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (manifest description update only touched
+  prose). Live build/install verification still pending.
