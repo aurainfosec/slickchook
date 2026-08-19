@@ -1,0 +1,53 @@
+name = "dehashed"
+container = "slickchook-plugin/dehashed:local"
+description = "Searches Dehashed's breach-data database (emails, usernames, passwords, hashed passwords, names, domains, IPs, phone numbers, addresses, VINs) for one authorized target. Every call costs a real credit (~$0.02-0.03) regardless of how many results come back, and there is no dry-run/count-only way to check first - so never call this speculatively or run a string of exploratory queries on your own initiative. Propose the specific candidate query text to the human first (e.g. built from emails/usernames/domains already discovered earlier in the engagement) and only run the exact query they confirm - this mirrors an existing unofficial Dehashed CLI's own behavior, which already interactively confirms with a human before any call that would be unusually expensive. Runs exactly one page per invocation and never paginates automatically - `page`/`size` are exposed so a human can deliberately fetch a specific additional page as its own separate, visible, credit-costing call, not something this plugin loops through by itself. The raw response's own `balance` field (Dehashed account credits remaining) and `total` field (total matching rows) are always returned unmodified, so the real cost and true result count are visible after every call. query is a field-scoped search string, e.g. `domain:example.com`, `email:someone@example.com`, or `username:jdoe&domain:example.com` (join multiple fields with `&`) - a bare, non-field-scoped keyword is far more likely to pull in irrelevant, out-of-scope results, so always scope it to the named engagement. Dehashed also has a dedicated /v2/search-password endpoint for password-focused lookups specifically - not wired up here since its exact request/response shape hasn't been verified against the real API yet; this plugin only covers the general /v2/search endpoint. Only ever search for details about an individual or organization actually in scope for this engagement, with a real basis for the lookup - this is exactly the kind of internet-wide third-party database query this fleet's own scope-discipline rules require staying tightly bounded on."
+fixed_args = []
+
+[[options]]
+name = "query"
+description = "Field-scoped search string, e.g. 'domain:example.com', 'email:someone@example.com', or 'username:jdoe&domain:example.com' (join multiple fields with &). Always confirm this exact query text with the human first - each call costs a real credit."
+required = true
+flag = "--query"
+
+[[options]]
+name = "page"
+description = "Which page of results to fetch (1-indexed). Only ever fetch one page per call - if a prior call's total suggests more pages are worth getting, confirm with the human before fetching another; don't loop through pages automatically."
+required = false
+flag = "--page"
+
+[[options]]
+name = "size"
+description = "Results per page, 1-10000. Doesn't affect the credit cost of the call (that's ~1 credit per call regardless of size) - only affects how much output comes back at once."
+required = false
+flag = "--size"
+
+[[options]]
+name = "wildcard"
+description = "Treat ? and * in the query as single-character/multi-character wildcards. Mutually exclusive with regex. Note: as of a known upstream issue, * wildcards have been reported broken by Dehashed's own API - test with a narrow query first if relying on this."
+required = false
+flag = "--wildcard"
+
+[[options]]
+name = "regex"
+description = "Treat the query as a regular expression instead of Dehashed's normal field-scoped syntax. Mutually exclusive with wildcard."
+required = false
+flag = "--regex"
+
+[[options]]
+name = "de_dupe"
+description = "Deduplicate near-identical entries in the results."
+required = false
+flag = "--de-dupe"
+
+[[secrets]]
+env_var = "DEHASHED_API_KEY"
+description = "Dehashed API key (from your Dehashed account's API settings)."
+required = true
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 60
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]

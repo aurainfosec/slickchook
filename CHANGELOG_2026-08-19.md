@@ -274,3 +274,66 @@
   No docker access in this sandbox to build/run the image locally;
   live verification (a real `mode=B` run producing retrievable
   downloaded responses under `/artifacts`) pending install.
+
+- Live-verified the `waymore` expansion above after redeploy: a real
+  `mode=B` run against `scanme.nmap.org` (`limit=10`, `to_date=202501`)
+  completed successfully and produced actual downloaded response files
+  (HTML pages, a binary `.unknown` file, GhostArchive's own working
+  file) under `/artifacts/responses/`, alongside `urls.txt` under
+  `/artifacts/` directly - confirming the output-path fix actually
+  works, not just compiles. Argv ordering also confirmed correct end
+  to end (`-i ... -mode B -oU ... -oR ... -l 10 -to 202501 -lcc 1 -lr
+  500`). Common Crawl and GhostArchive both logged non-fatal connection
+  errors on this specific run (exit code 0 regardless) - a transient
+  upstream/network condition on those two specific sources, not caused
+  by this change; noted here rather than silently ignored, since a
+  future recurrence is worth knowing this precedent exists.
+
+- Added a new `dehashed` plugin (Dehashed's v2 breach-data search API -
+  emails, usernames, passwords, hashed passwords, names, domains, IPs,
+  phone numbers, addresses, VINs) - fulfilling a direct request for a
+  plugin that "allows searches and suggests API searches to perform,
+  given that API requests use credits and so should be done by a
+  human." No official docs were fetchable (dehashed.com/docs
+  Cloudflare-blocks automated fetches with a 403) and no official CLI
+  exists - confirmed the real v2 endpoint (`api.dehashed.com/v2/search`),
+  its single-header auth (`Dehashed-Api-Key`), request/response shape,
+  and ~1-credit-per-call (not per-result-row) cost model by reading two
+  well-established unofficial wrappers' actual source
+  (`hmaverickadams/DeHashed-API-Tool`, `l4rm4nd/DehashedDumper`) rather
+  than trusting marketing copy, per this week's standing "verify
+  against real behavior" rule.
+  Design directly encodes the credit-cost constraint rather than
+  relying on documentation alone: makes exactly one API call per
+  invocation with no automatic pagination at all (`page`/`size` are
+  exposed so a human can deliberately fetch one additional page as its
+  own separate, visible, credit-costing call) - going further than
+  `DeHashed-API-Tool`'s own precedent, which already interactively
+  confirms with a human before any call likely to exceed 25 automatic
+  pages. Always returns Dehashed's own `balance` (credits remaining)
+  and `total` (matching row count) unmodified, so the real cost and
+  true result count are visible after every single call. The manifest
+  description itself instructs never to call this speculatively or run
+  a string of exploratory queries unprompted - propose the specific
+  query text to the operator and only run the exact one they confirm.
+  Also extended `SKILL.md`'s existing, plugin-agnostic §0
+  "internet-wide/third-party database" scope-discipline bullet with
+  this same cost-awareness rule generically (any plugin whose
+  description says its queries cost real per-call money/credits),
+  rather than writing a dehashed-specific mention, per the standing
+  plugin-agnostic-methodology rule.
+  Wrapped in a from-scratch, stdlib-only Python HTTP client
+  (`entrypoint.py`) rather than a third-party dependency, since no
+  official/established CLI or SDK exists to wrap.
+  Deliberately left the `/v2/search-password` endpoint (a
+  password-focused search variant Dehashed's API also exposes)
+  unwired, since its exact request/response shape hasn't been verified
+  against the real API yet - documented as a known, deliberate gap
+  rather than guessing at its shape.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (new plugin manifest, no core Rust touched); no
+  plugin names leaked into `SKILL.md`'s edit (checked with `grep`). No
+  docker access in this sandbox to build/run the image locally, and no
+  real Dehashed API key available to test against live - both full
+  container build and a real API call are pending install and a
+  configured `DEHASHED_API_KEY`.
