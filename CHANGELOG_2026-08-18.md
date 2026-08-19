@@ -262,3 +262,31 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean (manifest description update only touched
   prose). Live build/install verification still pending.
+
+- Fixed `virustotal-resolutions` failing on the first real live test:
+  `vt domain resolutions scanme.nmap.org` errored `Domain
+  "b'resolutions'" is not a valid domain pattern` - VirusTotal's own
+  backend rejecting "resolutions" as if it were the domain value
+  itself. Root cause, confirmed by reading vt-cli's actual source at
+  the exact pinned commit (the docs read earlier had been fetched from
+  the repo's default branch, not that pinned ref - a real gap in
+  verification, worth having caught sooner given the tag-naming
+  mismatch already found in the prior fix): `addRelationshipCmds`
+  (`cmd/relationship.go`) only registers per-relationship subcommands
+  like `resolutions` from a local cache file (`~/.cache/.vt.relationships.cache`)
+  that `vt init` writes - without ever running `init`, that cache is
+  empty, so `domain resolutions` doesn't exist as a command at all and
+  silently falls through to the base `domain` command, sending
+  "resolutions" itself as the domain argument.
+  Confirmed in vt-cli's own source (`cmd/init.go`) that `vt init` skips
+  its interactive API-key prompt entirely when `--apikey` is already
+  set, and live-tested locally with a fake key that it fails cleanly
+  (exit 1, clear "Wrong API key" message, no hang) - safe to run
+  non-interactively. Updated the entrypoint to run `vt --apikey
+  "$VT_API_KEY" init` (discarding its stdout banner) before `exec`ing
+  the real command, populating the relationships cache first so
+  `domain resolutions` becomes a real, valid subcommand.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (entrypoint-script-only change). Live
+  verification (a real domain lookup with the actual configured
+  VT_API_KEY) still pending redeploy.
