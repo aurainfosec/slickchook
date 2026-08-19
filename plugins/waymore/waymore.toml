@@ -1,37 +1,216 @@
 name = "waymore"
 container = "slickchook-plugin/waymore:local"
-description = "Collects archived URLs for one authorized domain using Waymore URL-only streaming mode with bounded source requests."
-fixed_args = ["-mode", "U", "--stream", "-lcc", "1", "-lr", "500"]
+description = "Finds archived history for one authorized domain (Waymore v8.9) across Wayback Machine, Common Crawl, AlienVault OTX, URLScan, and GhostArchive - and, unlike a plain archived-URL lister, can also download the actual archived page content (mode B/R), not just the URL list. That content is where the genuinely interesting historic finds are: developer comments, removed parameters, old API endpoints, files that used to be public and no longer are. Defaults to mode B (both URLs and downloaded responses) rather than URLs only, since a URL list alone is only half of what this tool can actually find. limit bounds how many responses get downloaded (default 200, well below Waymore's own default of 5000) - real archive.org/URLScan rate limiting means a large limit can genuinely take a very long time regardless of this plugin's own generous timeout_seconds; raise it deliberately, not reflexively. output_responses/output_urls default to fixed /artifacts/ paths so downloaded content and the URL list are both reliably retrievable afterward via list_run_artifacts/read_artifact - Waymore's own default output location is relative to $HOME, which isn't otherwise visible to this fleet's artifact system. stream only takes effect with mode set to U specifically (Waymore's own restriction, not this plugin's) - set both together for the old fast/URLs-only behavior instead of downloading responses. VirusTotal, URLScan, and Intelligence X can each use an optional API key for fuller results, but Waymore only reads those from its own config.yml file, never an environment variable (confirmed by reading its source) - this fleet's usual [[secrets]] mechanism can't reach them without a custom config-templating wrapper, not built here, so those three sources currently run keyless/limited. Wayback Machine, Common Crawl, AlienVault OTX, and GhostArchive need no key at all and are unaffected."
+fixed_args = []
 
 [[options]]
 name = "target"
-description = "Authorized domain, without a URL scheme."
+description = "Authorized domain (or domain with a specific path) to find history for. Don't prefix with www. for a domain-wide search."
 required = true
 flag = "-i"
 
 [[options]]
 name = "no_subdomains"
-description = "Return results only for the exact target domain."
+description = "Only return results for the exact target domain, not its subdomains too. Only relevant if target is a bare domain, not a domain-with-path."
 required = false
-flag = "--no-subs"
+flag = "-n"
+
+[[options]]
+name = "mode"
+description = "U (URLs only, fast), R (download archived responses only), or B (both - this plugin's default). R/B is where the genuinely interesting historic finds are - developer comments, removed parameters, old endpoints - a URL list alone won't show any of that."
+required = false
+flag = "-mode"
+default = "B"
+
+[[options]]
+name = "output_urls"
+description = "Path to save the URL list to - defaults to a fixed /artifacts/ path so it's reliably retrievable afterward. Only change this if you specifically need a different filename; it must still be under /artifacts/ to be retrievable at all."
+required = false
+flag = "-oU"
+default = "/artifacts/urls.txt"
+
+[[options]]
+name = "output_responses"
+description = "Directory to save downloaded archived responses to - defaults to a fixed /artifacts/ path so downloaded content is reliably retrievable afterward. Only relevant with mode R or B; only change this if you specifically need a different location, and it must still be under /artifacts/ to be retrievable at all."
+required = false
+flag = "-oR"
+default = "/artifacts/responses"
+
+[[options]]
+name = "stream"
+description = "Stream URLs to stdout as soon as they're found, instead of only writing the output file - only takes effect with mode set to U (Waymore's own restriction). Use this together with mode=U for the old fast, URLs-only behavior."
+required = false
+flag = "--stream"
+
+[[options]]
+name = "limit"
+description = "Maximum number of responses to download (only relevant with mode R or B). A positive number gets the first N, negative gets the last N, 0 means unlimited. Defaults to 200 here (Waymore's own default is 5000) - real source rate limiting means a large value can take a very long time regardless of this plugin's own timeout_seconds, so raise this deliberately for a specific reason, not reflexively."
+required = false
+flag = "-l"
+default = "200"
 
 [[options]]
 name = "from_date"
-description = "Earliest archive date in YYYY, YYYYMM, or YYYYMMDD form."
+description = "Earliest date to get results from, yyyyMMddhhmmss or any truncated prefix of it (e.g. 2016, 201805). Omit to get from the earliest available."
 required = false
 flag = "-from"
 
 [[options]]
 name = "to_date"
-description = "Latest archive date in YYYY, YYYYMM, or YYYYMMDD form."
+description = "Latest date to get results to, yyyyMMddhhmmss or any truncated prefix of it. Omit to get up to the latest available."
 required = false
 flag = "-to"
 
+[[options]]
+name = "capture_interval"
+description = "For downloaded responses only: keep at most one capture per hour (h), day (d, Waymore's own default), or month (m), or none to get every capture with no deduplication - none can multiply the download volume substantially."
+required = false
+flag = "-ci"
+
+[[options]]
+name = "keywords_only"
+description = "Only return links/responses matching this Python regex (case-insensitive) - narrows results to what's actually interesting instead of everything found, e.g. 'admin' or '\\.js(\\?.*|$)' for JS files only. Unlike Waymore's own CLI, this option always needs an explicit value here - Waymore's config-file-based default keyword list (triggered by passing the flag with no value) isn't reachable through this schema."
+required = false
+flag = "-ko"
+
+[[options]]
+name = "regex_after"
+description = "Python regex applied against the actual downloaded content (and URLs) after retrieval - only positive matches are kept. Directly useful for surfacing specific interesting content (e.g. 'BEGIN (RSA|OPENSSH|PGP) PRIVATE KEY' or 'internal-only') rather than reviewing everything manually."
+required = false
+flag = "-ra"
+
+[[options]]
+name = "match_status_codes"
+description = "Comma-separated HTTP status codes to keep - only these will be returned, overriding the default filter entirely."
+required = false
+flag = "-mc"
+
+[[options]]
+name = "filter_status_codes"
+description = "Comma-separated HTTP status codes to exclude, in addition to Waymore's own default filtering."
+required = false
+flag = "-fc"
+
+[[options]]
+name = "match_mime_types"
+description = "Comma-separated MIME types to keep - only these will be returned, overriding the default filter entirely. Not applied to AlienVault OTX or GhostArchive, which don't support MIME filtering."
+required = false
+flag = "-mt"
+
+[[options]]
+name = "filter_mime_types"
+description = "Comma-separated MIME types to exclude, in addition to Waymore's own default filtering. Not applied to AlienVault OTX or GhostArchive."
+required = false
+flag = "-ft"
+
+[[options]]
+name = "filter_responses_only"
+description = "Don't filter the initial URL list at all (by MIME type/status code) - only apply filtering to which responses actually get downloaded. Useful to see every available path even if only downloading a filtered subset of them."
+required = false
+flag = "-f"
+
+[[options]]
+name = "output_inline_js"
+description = "Save combined inline JavaScript extracted from downloaded responses into its own file(s) - only relevant with mode R or B. A quick way to review JS-embedded logic/secrets across many archived pages at once instead of opening each response individually."
+required = false
+flag = "-oijs"
+
+[[options]]
+name = "url_filename"
+description = "Name each downloaded response file after the URL that produced it, instead of a content hash. The hash-based default already deduplicates identical responses from different URLs into one file - only turn this on if you specifically need to know which URL each saved file came from at a glance."
+required = false
+flag = "-url-filename"
+
+[[options]]
+name = "check_only"
+description = "Don't actually run the job - just estimate how many requests it would take and roughly how long, for the sources and settings given (can't estimate URLScan response download time specifically). Use this before committing to a large mode=B run against an unfamiliar target."
+required = false
+flag = "-co"
+
+[[options]]
+name = "exclude_wayback"
+description = "Skip Wayback Machine (archive.org) as a source."
+required = false
+flag = "-xwm"
+
+[[options]]
+name = "exclude_commoncrawl"
+description = "Skip Common Crawl as a source."
+required = false
+flag = "-xcc"
+
+[[options]]
+name = "exclude_alienvault"
+description = "Skip AlienVault OTX as a source."
+required = false
+flag = "-xav"
+
+[[options]]
+name = "exclude_urlscan"
+description = "Skip URLScan as a source. Note URLScan already runs with reduced/rate-limited results without a configured API key, which this plugin doesn't currently wire up (see the plugin description)."
+required = false
+flag = "-xus"
+
+[[options]]
+name = "exclude_virustotal"
+description = "Skip VirusTotal as a source. Note VirusTotal needs an API key for meaningful results, which this plugin doesn't currently wire up (see the plugin description) - likely close to useless without excluding it or accepting minimal results."
+required = false
+flag = "-xvt"
+
+[[options]]
+name = "exclude_intelx"
+description = "Skip Intelligence X as a source. Note Intelligence X needs an API key for meaningful results, which this plugin doesn't currently wire up (see the plugin description)."
+required = false
+flag = "-xix"
+
+[[options]]
+name = "exclude_ghostarchive"
+description = "Skip GhostArchive as a source."
+required = false
+flag = "-xga"
+
+[[options]]
+name = "limit_collections"
+description = "How many of Common Crawl's most recent index collections to search (there are around 100+). Defaults to 1 here for a bounded run; raise for more thorough Common Crawl coverage at the cost of more requests, or set to 0 for every collection."
+required = false
+flag = "-lcc"
+default = "1"
+
+[[options]]
+name = "limit_requests"
+description = "Cap the number of requests made to a single source when retrieving the URL list (doesn't apply to Common Crawl) - some targets need an infeasible number of requests otherwise. Defaults to 500 here; 0 means unlimited."
+required = false
+flag = "-lr"
+default = "500"
+
+[[options]]
+name = "timeout_seconds"
+description = "Per-request timeout in seconds for downloading archived responses. Omit for Waymore's own default (10)."
+required = false
+flag = "-t"
+
+[[options]]
+name = "processes"
+description = "Number of concurrent threads used when processing a list of URLs. Omit for Waymore's own default (2)."
+required = false
+flag = "-p"
+
+[[options]]
+name = "retries"
+description = "Number of retries for requests that hit a connection error or rate limit. Omit for Waymore's own default (1) - raising this helps completeness on a target hitting rate limits often, at the cost of a longer run."
+required = false
+flag = "-r"
+
+[[options]]
+name = "verbose"
+description = "Show Waymore's own verbose output."
+required = false
+flag = "-v"
+
 [docker]
 network = "bridge"
-memory = "512m"
+memory = "1g"
 cpus = "1"
 pids_limit = 128
-timeout_seconds = 900
-tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=128m"]
-
+timeout_seconds = 2700
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=256m"]
