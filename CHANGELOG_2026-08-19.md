@@ -479,3 +479,28 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live re-verification (an actual bounded pagodo
   run completing successfully) pending redeploy.
+
+- Broadened `SKILL.md`'s existing Phase 4 guidance on request: it
+  already covered fetching a dependency manifest/lockfile *when one was
+  already known to be reachable at a URL on the target itself* and
+  chaining it into an offline dependency-vulnerability scanner - now
+  triggers on any phase identifying specific open-source software (name
+  + version, not just a generic fingerprint), fetching that software's
+  real manifest/lockfile from its own upstream public source at the
+  matching released version, not only from the target directly. Also
+  added checking that same software's own issue tracker for existing
+  reports matching the discovered version - a real, already-reported
+  vulnerability is a stronger, faster finding than waiting on a
+  template-based scanner - noting that a plain URL fetch can't parse a
+  JS-rendered issue-search results page, so a JSON API endpoint (where
+  the hosting platform offers one, e.g. GitHub's REST issue-search API)
+  should be preferred when available. Written generically per the
+  standing plugin-agnostic-methodology rule - no plugin names added
+  (checked with `grep`) - describing roles only ("a URL-content-fetching
+  plugin", "an offline dependency-vulnerability scanner"), matching how
+  every other Phase already reads.
+  Documentation-only change, no build/test impact beyond confirming
+  nothing else broke.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean; `grep` for every currently-installed plugin name
+  against `SKILL.md` confirms none leaked in.
