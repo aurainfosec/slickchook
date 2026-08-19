@@ -337,3 +337,126 @@
   real Dehashed API key available to test against live - both full
   container build and a real API call are pending install and a
   configured `DEHASHED_API_KEY`.
+
+- Installed `dehashed` on the deployed host: the image built and
+  installed cleanly. A real live MCP call against it was attempted for
+  verification but was itself blocked by this session's own auto-mode
+  tool-use classifier (a breach-data-search invocation is exactly the
+  kind of thing that guardrail is meant to catch, even though this
+  particular call would only have hit the plugin's own missing-secret
+  error path, no real API key being configured yet) - by agreement with
+  the operator, a successful build+install is treated as sufficient
+  verification for now, with a real end-to-end call deferred until a
+  real `DEHASHED_API_KEY` is configured and the operator runs (or
+  explicitly authorizes) that specific call themselves.
+
+- Added a new `github-code-search` plugin (wraps the official `gh`
+  CLI's `search code` command, github.com/cli/cli, pinned to the real
+  `v2.97.0` release tarball) - passively finds leaked secrets/
+  credentials/internal references committed to an authorized
+  organization's public (or, with a suitably-scoped token, private)
+  GitHub repos. Confirmed GitHub's code search is only usable via the
+  REST `/search/code` endpoint - its newer regex-capable search engine
+  is web-UI-only, not exposed by any API (confirmed directly in `gh`'s
+  own help text) - and confirmed several real, easy-to-assume-wrong
+  constraints directly from GitHub's docs rather than guessing: only
+  the default branch of each repo is indexed, files 384KB+ are
+  excluded, no regex support at all, and code search specifically is
+  rate-limited to 10 requests/minute (much stricter than GitHub's
+  general API limit). `owner`/`repo` should always be set to the
+  authorized engagement's own GitHub presence - without either, this
+  becomes a bare internet-wide GitHub search, exactly the kind of
+  third-party-database query this fleet's own scope-discipline rules
+  require staying scoped on. `GH_TOKEN` is auto-detected by the `gh`
+  CLI itself, so no wrapper/init step was needed here (simpler than
+  `vt-cli`/`shodan`'s own secret-handling, which both needed one).
+  Description documents several real, known-useful leaked-secret dork
+  patterns (`filename:.env`, `extension:pem` + `"BEGIN RSA PRIVATE
+  KEY"`, `filename:.npmrc` + `_authToken`, `xoxb-` for Slack tokens,
+  etc.) sourced from established OSINT/secret-scanning writeups, not
+  invented.
+  No `SKILL.md` change needed - Phase 1's existing generic "installed
+  plugin whose description indicates passive, no-touch" wording already
+  covers this addition, matching the precedent already confirmed when
+  `katana` shipped.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (the existing `scan_plugins`-based tests already
+  exercise every manifest under `plugins/`, including this one, and
+  passed). No docker access in this sandbox to build/run the image
+  locally; live verification pending install.
+
+- Added a new `brave-dork-search` plugin - dork-style passive discovery
+  of exposed files/content (backups, configs, leaked secrets) on one
+  authorized domain, via the Brave Search API rather than scraping
+  Google directly - a genuinely independent search index, avoiding the
+  CAPTCHA/blocking problem raw Google-search scraping runs into from a
+  single datacenter IP. Confirmed the real endpoint
+  (`api.search.brave.com/res/v1/web/search`), its single-header auth
+  (`X-Subscription-Token`), and - critically - which classic Google-dork
+  operators are actually confirmed supported here by reading Brave's own
+  query-syntax docs directly rather than assuming Google-dork parity:
+  only `site:`, `filetype:`, quoted phrases, and `-exclusion` are
+  documented as working; `intitle:`/`inurl:`/`intext:`, which most of the
+  Google Hacking Database actually depends on, are not documented as
+  supported and are assumed not to work - the plugin's description says
+  so plainly rather than shipping unverified preset dorks built on
+  operators that likely don't function against this API. Scope safety is
+  enforced structurally, not just by documentation: `target` is a
+  required, separate field, and the wrapper always prepends `site:
+  <target>` to whatever dork text is given internally, so there is no way
+  to invoke this plugin with an unscoped, whole-internet query at all -
+  a stronger version of the scope-discipline pattern this fleet has so
+  far only enforced via documentation (e.g. `shodan-search`).
+  No official CLI/SDK exists for this API - wrapped in a from-scratch,
+  stdlib-only Python HTTP client, matching `dehashed`'s pattern. Also
+  confirmed (correcting an initial, misremembered claim from earlier
+  research) that there is no genuinely free tier - it's $5/1000 requests
+  with $5 of free credit applied monthly, and a credit card must be on
+  file even to use that free credit.
+  No `SKILL.md` change needed, same reasoning as `github-code-search`
+  above.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. No docker access in this sandbox to build/run
+  the image locally, and no Brave API key available to test against
+  live; both pending install and a configured `BRAVE_API_KEY`.
+
+- Added a new `pagodo` plugin (github.com/opsdisk/pagodo v2.7.0,
+  pinned by git tag - no pip package exists, it's a pair of scripts,
+  not a library) - runs a small, bounded batch of real Google Hacking
+  Database dorks against one authorized domain. Read its own upstream
+  README before building anything here: pagodo scrapes Google's HTML
+  search results directly via the `yagooglesearch` library, no real
+  browser, and its own documentation explicitly acknowledges it will
+  get rate-limited/CAPTCHA-blocked without a proxy pool - not wired up
+  here, since this fleet has no established proxy-pool convention yet.
+  This plugin's own description says so plainly, matching this week's
+  standing rule to document real tool behavior rather than silently
+  hide a limitation.
+  Found a real sizing problem before shipping, not after: pagodo's own
+  bundled GHDB corpus is 7,944 dorks total across 14 categories, and
+  even its *smallest* single category (121 dorks) would take roughly 97
+  minutes at pagodo's own default delay - already longer than any
+  timeout this fleet uses anywhere. Added `max_dorks`, a bounding option
+  that doesn't exist in pagodo itself, to the wrapper entrypoint: it
+  slices the chosen category's dork file down to a small batch (default
+  15, roughly 12-15 minutes including delays) - a human deliberately
+  runs this again, or raises the value, to cover more of a category,
+  rather than the container ever attempting a whole category
+  automatically in one shot.
+  The dork corpus itself is baked into the image at build time (`python
+  ghdb_scraper.py -s -i`, run once during `docker build`) rather than
+  scraped live on every run - ties dork-list freshness to a plugin
+  rebuild/reinstall, not a live per-run dependency on exploit-db, and
+  keeps every real run's own network activity limited to the actual
+  Google queries. The wrapper discovers which category files actually
+  got baked in dynamically at runtime (rather than hardcoding an
+  assumed path/filename list) - an unrecognized `category` value fails
+  with the real available list, so the manifest can never silently
+  drift from what the image actually contains.
+  No `SKILL.md` change needed, same reasoning as the two plugins above.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. No docker access in this sandbox to build the
+  image (a `git clone` + dependency install + a real GHDB scrape at
+  build time, likely a multi-minute build) or run it locally; live
+  verification, including confirming the blocking/CAPTCHA behavior in
+  practice, is pending install.

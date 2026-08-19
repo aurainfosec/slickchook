@@ -1,0 +1,49 @@
+name = "pagodo"
+container = "slickchook-plugin/pagodo:local"
+description = "Runs a small, bounded batch of real Google Hacking Database (GHDB) dorks against one authorized domain via pagodo (github.com/opsdisk/pagodo v2.7.0), scoped with a site: filter. Read this before running it: pagodo works by scraping Google's own HTML search results directly (via the yagooglesearch library) - there is no real browser and no proxy pool wired up here (no established convention for one in this fleet yet) - so getting rate-limited/CAPTCHA-blocked by Google from this container's single IP is real, expected, documented upstream behavior, not a bug to chase if it happens; it's simply what running this without a proxy pool looks like. category selects one of the 14 real GHDB categories baked into this image at build time (ties freshness to a rebuild, not a live per-run scrape): footholds, file_containing_usernames, sensitive_directories, web_server_detection, vulnerable_files, vulnerable_servers, error_messages, file_containing_juicy_info, file_containing_passwords, sensitive_online_shopping_info, network_or_vulnerability_data, pages_containing_login_portals, various_online_devices, advisories_and_vulnerabilities - an unknown category name fails with the real available list, so this plugin never silently drifts from what actually got baked in. max_dorks is a bounding option this plugin adds that pagodo itself doesn't have: even pagodo's smallest single category (121 dorks) would take roughly 97 minutes at its own default delay - far past a reasonable single run - so max_dorks slices the category's dork file down to a small batch (default 15, a deliberate human choice each time, not an automatic loop through an entire category). min_delay/max_delay are pagodo's own real jitter-delay bounds between each dork's request (defaults match upstream's own defaults, 37-60 seconds) - upstream's own guidance is not to make these too small, since that is exactly what triggers blocking fastest."
+fixed_args = []
+
+[[options]]
+name = "target"
+description = "Authorized domain to scope every dork to via a site: filter."
+required = true
+flag = "--target"
+
+[[options]]
+name = "category"
+description = "Which baked-in GHDB category to draw dorks from: footholds, file_containing_usernames, sensitive_directories, web_server_detection, vulnerable_files, vulnerable_servers, error_messages, file_containing_juicy_info, file_containing_passwords, sensitive_online_shopping_info, network_or_vulnerability_data, pages_containing_login_portals, various_online_devices, or advisories_and_vulnerabilities. An unrecognized value fails with the real list actually baked into this image."
+required = true
+flag = "--category"
+
+[[options]]
+name = "max_dorks"
+description = "How many dorks from the front of the chosen category to actually run in this call - not a pagodo option, added here because even the smallest category would take about 97 minutes at default delay otherwise. Defaults to 15 (roughly 12-15 minutes including delays). Run again with a larger value, or repeat the same category, to deliberately cover more of it - this plugin never loops through a whole category automatically."
+required = false
+flag = "--max-dorks"
+default = "15"
+
+[[options]]
+name = "min_delay"
+description = "Minimum seconds to wait between each dork's request. Matches pagodo's own default (37) - lowering this increases blocking risk, per pagodo's own documented guidance."
+required = false
+flag = "--min-delay"
+
+[[options]]
+name = "max_delay"
+description = "Maximum seconds to wait between each dork's request. Matches pagodo's own default (60)."
+required = false
+flag = "--max-delay"
+
+[[options]]
+name = "max_urls_per_dork"
+description = "Maximum result URLs to collect per dork. Matches pagodo's own default (100)."
+required = false
+flag = "--max-urls-per-dork"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 1800
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]

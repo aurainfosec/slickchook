@@ -1,0 +1,72 @@
+name = "github-code-search"
+container = "slickchook-plugin/github-code-search:local"
+description = "Searches public (and, with a suitably-scoped token, private) GitHub code for leaked secrets/credentials/internal references belonging to one authorized organization, via the official `gh` CLI's `search code` command (wraps GitHub's REST `/search/code` endpoint - the only code-search API GitHub actually exposes; its newer regex-capable web-UI search engine is not available via any API). owner (or repo) MUST be set to the authorized engagement's actual GitHub org/user - without it, this becomes a bare internet-wide GitHub search, exactly the kind of shared/third-party-database query this fleet's own scope-discipline rules require staying tightly scoped on, and any result outside the named org must be disregarded, not investigated further. Rate-limited by GitHub to 10 requests/minute for code search specifically - much stricter than GitHub's general API limit - so space out repeated calls. Real search limitations to know before relying on this (confirmed from GitHub's own docs, not assumed): only the default branch of each repo is indexed, not all branches; files 384KB or larger, repos with 500,000+ files, and archived/forks (unless fork is explicitly included) are excluded; no regex support at all, only literal/qualifier-based matching; queries need at least one real search term unless filename is set; wildcard characters (. , : ; / \\) are ignored, not matched literally; max 256 characters and 5 boolean operators per query. query is the free-text term (can also embed qualifiers like 'filename:.env' directly if not using the filename/extension/owner/repo/language/size options below). Some real, commonly-useful patterns for finding leaked secrets specifically: 'BEGIN RSA PRIVATE KEY' with extension=pem, '_authToken' with filename=.npmrc, 'aws_access_key_id' with filename=credentials, 'xoxb-' for a leaked Slack bot token, 'DB_PASSWORD' with filename=wp-config.php, 'SECRET_KEY' with filename=settings.py, 'AIzaSy' with extension=json for a Google API key. Passive - only reads GitHub's existing search index, never clones or otherwise touches any repository directly."
+fixed_args = ["search", "code", "--json", "repository,path,sha,url,textMatches"]
+
+[[options]]
+name = "owner"
+description = "GitHub org or user to scope the search to - set this to the authorized engagement's own GitHub presence. See this plugin's own description for why this (or repo) should always be set."
+required = false
+flag = "--owner"
+
+[[options]]
+name = "repo"
+description = "Exact repo to scope the search to, as owner/name - use instead of or alongside owner for a single specific repository."
+required = false
+flag = "--repo"
+
+[[options]]
+name = "language"
+description = "Restrict results to files of this programming language."
+required = false
+flag = "--language"
+
+[[options]]
+name = "filename"
+description = "Restrict results to files with this exact filename, e.g. '.env', 'id_rsa', 'wp-config.php'."
+required = false
+flag = "--filename"
+
+[[options]]
+name = "extension"
+description = "Restrict results to files with this extension, e.g. 'pem', 'json', 'env'."
+required = false
+flag = "--extension"
+
+[[options]]
+name = "size"
+description = "Restrict results by file size in KB, e.g. '>1000' or '50..100'."
+required = false
+flag = "--size"
+
+[[options]]
+name = "match"
+description = "Which part of each file to match the query against: file (content) or path (filename/path only)."
+required = false
+flag = "--match"
+
+[[options]]
+name = "limit"
+description = "Maximum number of results to return. Keep modest given the 10 requests/minute rate limit on repeated calls."
+required = false
+flag = "--limit"
+default = "30"
+
+[[arguments]]
+name = "query"
+description = "Free-text search term(s). GitHub's code search needs at least one real search term unless filename is set - can also embed a qualifier directly here (e.g. 'filename:.env') instead of using the dedicated options above."
+required = false
+position = 1
+
+[[secrets]]
+env_var = "GH_TOKEN"
+description = "GitHub personal access token (github.com/settings/tokens) - the gh CLI auto-detects this env var, no login/init step needed. Standard read access is enough for public repos; searching a private org's own repos needs a token with corresponding read scope for that org."
+required = true
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 60
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
