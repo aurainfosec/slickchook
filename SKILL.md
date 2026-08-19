@@ -229,7 +229,12 @@ real value — immediately chain its `run_id` as `input_run_id` into a
 sanitization/OCR follow-up plugin if one exists, before treating the
 screenshot as anything but an opaque, untrusted image (check both
 plugins' own descriptions — a plugin expecting this kind of chained input
-usually documents the pairing itself). Anything matching §0's
+usually documents the pairing itself). If a target-vocabulary or
+personal-profile wordlist generator is installed, use it only to feed a
+credential-testing plugin covered by §0's rule — generating a wordlist
+isn't itself the sensitive action, but read the generating plugin's own
+description for what it needs (e.g. real details about a specific
+authorized individual) before using it. Anything matching §0's
 credential-testing pattern only per that section's rule.
 
 Throughout every phase: keep a running list of every `run_id` you start,
