@@ -143,3 +143,22 @@
   the manifest, catching the bug before it ever shipped rather than
   after. Full end-to-end verification via the actual MCP server still
   pending install, since this sandbox has no docker access.
+
+- Fixed `alterx`'s Docker image not existing at all: install failed
+  outright, `docker.io/projectdiscovery/alterx:v0.1.0: not found`.
+  Confirmed live against Docker Hub's actual tag list: the official
+  image was only ever published up to `v0.0.6` (March 2025) - `v0.1.0`
+  was never pushed there. Checked the real `v0.0.6` binary's own
+  `-h` output before just downgrading the tag, since that's a
+  meaningfully older release: it's missing the entire pattern-mining
+  feature set (`mode`/`min_distance`/`max_distance`/
+  `pattern_threshold`/`quality_ratio`/`ngrams_limit`/`save_rules`) this
+  manifest already relies on, since it predates that feature entirely.
+  Rather than strip those options back out, switched to building from
+  source pinned to the exact `v0.1.0` tag instead (matching the
+  `subfaster`/`katana` precedent for a missing/inadequate official
+  image) - confirmed the git tag is properly `v`-prefixed this time
+  (unlike `vt-cli`'s mismatch), so the straightforward `go install
+  .../alterx/cmd/alterx@v0.1.0` actually works.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live install/build verification still pending.
