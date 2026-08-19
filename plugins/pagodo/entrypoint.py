@@ -78,7 +78,12 @@ def main():
         "-s", "/artifacts/results.txt",
         "-z", "/artifacts/pagodo.log",
     ]
-    result = subprocess.run(cmd, cwd="/opt/pagodo")
+    # yagooglesearch (pagodo's own scraping library) opens a log file at
+    # import time using a bare relative filename ("yagooglesearch.py.log")
+    # - /opt/pagodo is read-only in this container, so run from /tmp
+    # (tmpfs-mounted, writable) instead. Every path pagodo is given above
+    # is already absolute, so cwd doesn't otherwise matter to it.
+    result = subprocess.run(cmd, cwd="/tmp")
     sys.exit(result.returncode)
 
 
