@@ -148,6 +148,18 @@ as querying a shared/internet-wide database rather than one bounded
 target, apply §0's scope rule before running it, even in this passive
 phase.
 
+**Between Phase 1 and Phase 2 — optional permutation generation.** If a
+plugin is installed that generates subdomain candidates by pattern from
+already-discovered names (rather than querying a third-party source), run
+it on Phase 1's results before moving on. Passive sources only surface
+what someone else already indexed; a host that was never indexed anywhere
+but follows the same naming convention as a real one (e.g.
+`api-eu.example.com` found → `api-us.example.com` guessed) is a genuine
+gap this step can close, and it's often a more interesting find precisely
+because it was never publicly logged. Feed its generated candidates into
+Phase 2's resolution step like any other hostname — a guess is only worth
+anything once it's actually confirmed to resolve.
+
 **Phase 2 — Active resolution and host discovery (parallel per discovered host)**
 Feed Phase 1's discovered hostnames into whichever installed plugins do
 DNS resolution and TCP/UDP port discovery, in parallel across hosts. If a
