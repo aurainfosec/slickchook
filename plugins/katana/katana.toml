@@ -1,0 +1,234 @@
+name = "katana"
+container = "projectdiscovery/katana:v1.7.0"
+description = "Runs ProjectDiscovery Katana, a next-generation crawler, against one authorized URL - a modern complement/alternative to gospider, notably JS-aware (js_crawl parses endpoints out of JavaScript files that a plain HTML crawler like gospider never sees, the main reason to reach for this over gospider on a JS-heavy modern site). Scoped to Katana's well-understood non-headless HTTP crawling mode for now; headless/Chromium-based crawling (the image bundles Chromium for this) is not exposed here yet - its exact chrome-binary-path requirements in this specific image haven't been verified live, and this fleet has already shipped two real bugs this week from assuming an unverified detail worked. form_extraction/knowledge_base/xhr-style outputs only show up when json_output is enabled - plain output is just a URL list. automatic_form_fill is experimental and actually fills in (and likely submits) discovered forms - a real, active action with real side effects on the target (e.g. triggering a signup/contact-form flow), not passive crawling; use it as deliberately as any other live authenticated/credentialed action. kb_validate_secrets sends live API calls to each detected secret's own provider to check whether it's actually valid - a genuine network side effect beyond passive crawling, not just local analysis. no_scope disables Katana's own host-based default scope entirely, letting the crawler follow links off the authorized domain - leave this off unless the engagement specifically calls for it."
+fixed_args = ["-silent", "-disable-update-check", "-no-color"]
+
+[[options]]
+name = "target"
+description = "Authorized URL to crawl."
+required = true
+flag = "-u"
+
+[[options]]
+name = "depth"
+description = "Maximum crawl depth. Omit for Katana's own default (3)."
+required = false
+flag = "-depth"
+
+[[options]]
+name = "js_crawl"
+description = "Parse and follow endpoints found inside JavaScript files - the main reason to reach for Katana over a plain HTML crawler on a JS-heavy site."
+required = false
+flag = "-js-crawl"
+
+[[options]]
+name = "jsluice"
+description = "Deeper JavaScript parsing via jsluice for endpoints/secrets - more thorough than js_crawl alone, but memory-intensive; only use on a target where that cost is worth it."
+required = false
+flag = "-jsluice"
+
+[[options]]
+name = "crawl_duration"
+description = "Maximum wall-clock time to crawl for, e.g. 5m - a self-imposed cap independent of this plugin's own container timeout_seconds, useful for bounding a crawl of unknown size predictably."
+required = false
+flag = "-crawl-duration"
+
+[[options]]
+name = "known_files"
+description = "Also crawl known well-known files: robotstxt, sitemapxml, or all. Requires depth of at least 3 to be fully effective (Katana's own requirement, not this plugin's)."
+required = false
+flag = "-known-files"
+
+[[options]]
+name = "max_response_size"
+description = "Maximum response size in bytes to read per page. Omit for Katana's own default (4194304, 4 MiB)."
+required = false
+flag = "-max-response-size"
+
+[[options]]
+name = "timeout_seconds"
+description = "Per-request timeout in seconds. Omit for Katana's own default (10)."
+required = false
+flag = "-timeout"
+
+[[options]]
+name = "retries"
+description = "Number of times to retry a failed request. Omit for Katana's own default (1)."
+required = false
+flag = "-retry"
+
+[[options]]
+name = "form_extraction"
+description = "Extract form/input/textarea/select elements into the output - only visible when json_output is also enabled. Useful for mapping input surfaces worth testing later, without submitting anything."
+required = false
+flag = "-form-extraction"
+
+[[options]]
+name = "automatic_form_fill"
+description = "Experimental: automatically fills in (and likely submits) any discovered forms with synthetic data. This is a real, active action with real side effects on the target (e.g. triggering a signup or contact-form flow), not passive crawling - use as deliberately as any other live action against a target, only when the engagement specifically calls for it."
+required = false
+flag = "-automatic-form-fill"
+
+[[options]]
+name = "tech_detect"
+description = "Enable technology detection during crawling, matching the same tech_detect naming used by this fleet's httpx plugin."
+required = false
+flag = "-tech-detect"
+
+[[options]]
+name = "headers"
+description = "Custom header/cookie to include on every request, header:value format. Useful for authenticated crawling with a session cookie already obtained through proper means."
+required = false
+flag = "-headers"
+
+[[options]]
+name = "strategy"
+description = "Crawl visit strategy: depth-first (Katana's own default) or breadth-first."
+required = false
+flag = "-strategy"
+
+[[options]]
+name = "tls_impersonate"
+description = "Randomize the TLS client-hello (JA3) fingerprint - an evasion option, experimental."
+required = false
+flag = "-tls-impersonate"
+
+[[options]]
+name = "disable_redirects"
+description = "Don't follow HTTP redirects."
+required = false
+flag = "-disable-redirects"
+
+[[options]]
+name = "knowledge_base"
+description = "Enable Katana's knowledge-base classification of crawled content - only visible when json_output is also enabled."
+required = false
+flag = "-knowledge-base"
+
+[[options]]
+name = "kb_secrets"
+description = "Extract likely secrets (API keys, tokens, etc.) found while crawling into the knowledge base. Passive - only reports what's already exposed in crawled content, doesn't validate anything (see kb_validate_secrets for that separate, active step)."
+required = false
+flag = "-kb-secrets"
+
+[[options]]
+name = "kb_validate_secrets"
+description = "Validate each detected secret against its own provider's real API to check whether it's actually live. This sends real network requests to third-party services (AWS, GitHub, Slack, etc. depending on the secret type) - a genuine active side effect, not passive analysis. Only enable with the same deliberateness as any other live action against real infrastructure."
+required = false
+flag = "-kb-validate-secrets"
+
+[[options]]
+name = "kb_endpoints"
+description = "Classify crawled endpoints by type (REST/GraphQL/SOAP/XHR) in the knowledge base - only visible when json_output is also enabled."
+required = false
+flag = "-kb-endpoints"
+
+[[options]]
+name = "max_domain_pages"
+description = "Maximum number of pages to crawl per domain - a real bound on crawl size. Omit for Katana's own default (unlimited), which on a large site could run long; set this for a predictable, scoped crawl."
+required = false
+flag = "-max-domain-pages"
+
+[[options]]
+name = "crawl_scope"
+description = "Regex (or list) of in-scope URLs the crawler is allowed to follow, in addition to Katana's own default host-based scoping."
+required = false
+flag = "-crawl-scope"
+
+[[options]]
+name = "crawl_out_scope"
+description = "Regex (or list) of URLs to explicitly exclude from crawling."
+required = false
+flag = "-crawl-out-scope"
+
+[[options]]
+name = "field_scope"
+description = "Scope field: dn (domain name), rdn (root domain name, Katana's own default), fqdn, or a custom regex. rdn is usually the right, safe default - it keeps the crawl within the authorized domain."
+required = false
+flag = "-field-scope"
+
+[[options]]
+name = "no_scope"
+description = "Disable Katana's own host-based default scope entirely, letting the crawler follow links off the authorized domain. Leave off unless the engagement specifically calls for it - this is the one option here that can take a crawl outside what was actually authorized."
+required = false
+flag = "-no-scope"
+
+[[options]]
+name = "match_regex"
+description = "Only output URLs matching this regex (or list)."
+required = false
+flag = "-match-regex"
+
+[[options]]
+name = "filter_regex"
+description = "Exclude URLs matching this regex (or list) from output."
+required = false
+flag = "-filter-regex"
+
+[[options]]
+name = "extension_match"
+description = "Only output URLs with these extensions, comma-separated (e.g. php,html,js)."
+required = false
+flag = "-extension-match"
+
+[[options]]
+name = "extension_filter"
+description = "Exclude URLs with these extensions, comma-separated (e.g. png,css)."
+required = false
+flag = "-extension-filter"
+
+[[options]]
+name = "concurrency"
+description = "Number of concurrent fetchers. Omit for Katana's own default (10)."
+required = false
+flag = "-concurrency"
+
+[[options]]
+name = "parallelism"
+description = "Number of concurrent inputs (targets) to process in parallel. Only relevant with multiple targets; this plugin passes one target per run, so rarely needed."
+required = false
+flag = "-parallelism"
+
+[[options]]
+name = "delay"
+description = "Delay between requests, in seconds - raise for a quieter, slower crawl."
+required = false
+flag = "-delay"
+
+[[options]]
+name = "rate_limit"
+description = "Maximum requests per second overall. Omit for Katana's own default (150) - high for a stealthy crawl; lower for a small or fragile authorized target."
+required = false
+flag = "-rate-limit"
+
+[[options]]
+name = "host_rate_limit"
+description = "Maximum requests per second, per host - a per-target throttle independent of the overall rate_limit."
+required = false
+flag = "-host-rate-limit"
+
+[[options]]
+name = "json_output"
+description = "Emit newline-delimited JSON instead of a plain URL list - required to see form_extraction, knowledge_base, kb_secrets, and kb_endpoints data at all."
+required = false
+flag = "-jsonl"
+
+[[options]]
+name = "store_response"
+description = "Store each crawled request/response pair as separate artifact files, not just the URL list - useful for reviewing what a page actually returned, not just that it was found."
+required = false
+flag = "-store-response"
+
+[[options]]
+name = "verbose"
+description = "Show Katana's own verbose logging."
+required = false
+flag = "-verbose"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 256
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
