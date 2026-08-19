@@ -460,3 +460,22 @@
   build time, likely a multi-minute build) or run it locally; live
   verification, including confirming the blocking/CAPTCHA behavior in
   practice, is pending install.
+
+- Fixed a real bug in `pagodo` found on its very first live test
+  (a bounded `max_dorks=1` run against `scanme.nmap.org`): every
+  invocation crashed immediately, before making a single request, with
+  `OSError: [Errno 30] Read-only file system:
+  'yagooglesearch.py.log'`. `yagooglesearch` (pagodo's own scraping
+  library, not pagodo itself) opens a log file at import time using a
+  bare relative filename - this plugin's wrapper ran the real
+  `pagodo.py` subprocess with its working directory set to `/opt/pagodo`
+  (the read-only image layer), so that relative path resolved
+  somewhere non-writable. Every path this plugin actually gives pagodo
+  (`-g`/`-o`/`-s`/`-z`) is already absolute, so the fix was simply
+  running the subprocess from `/tmp` instead (already tmpfs-mounted and
+  writable) - no other behavior depends on the working directory.
+  `github-code-search`, `brave-dork-search`, and `dehashed` all built
+  and installed cleanly with no equivalent issue.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live re-verification (an actual bounded pagodo
+  run completing successfully) pending redeploy.
