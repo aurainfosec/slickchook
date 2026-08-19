@@ -123,6 +123,12 @@ pub struct RunSummary {
     pub artifact_dir: String,
     pub started_at: String,
     pub finished_at: String,
+    /// The exact JSON input a run was called with. Lets a caller checking
+    /// `list_runs_by_target` tell whether a past run actually used the
+    /// options it's about to use (worth reusing) or different ones (worth
+    /// re-running), without an extra `read_artifact` call to parse the
+    /// stderr's `args=[...]` log line just to find out.
+    pub input_json: serde_json::Value,
 }
 
 impl RunSummary {
@@ -137,12 +143,12 @@ impl RunSummary {
             artifact_dir: row.get(6),
             started_at: row.get(7),
             finished_at: row.get(8),
+            input_json: row.get(9),
         }
     }
 }
 
-const RUN_SUMMARY_COLUMNS: &str =
-    "run_id, plugin, container, target, status, exit_code, artifact_dir, started_at, finished_at";
+const RUN_SUMMARY_COLUMNS: &str = "run_id, plugin, container, target, status, exit_code, artifact_dir, started_at, finished_at, input_json";
 
 /// Canonicalizes `candidate` and confirms it lies beneath the already-canonical
 /// `root`, resolving symlinks along the way so a symlink planted inside a run's

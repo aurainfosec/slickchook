@@ -162,3 +162,25 @@
   .../alterx/cmd/alterx@v0.1.0` actually works.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live install/build verification still pending.
+
+- Exposed each run's exact `input_json` in `list_runs_by_target`'s
+  output, so a caller can tell whether a prior run actually used the
+  options it's about to use (safe to reuse) or different ones (worth
+  re-running) without an extra `read_artifact` call just to parse the
+  stderr's `args=[...]` log line to find out. The `plugin_runs` table
+  already stored this for every run; it just wasn't surfaced in the
+  summary. Added `input_json: serde_json::Value` to `RunSummary`
+  (`src/storage.rs`) and the matching column to the query - no schema
+  migration needed, `serde_json::Value` already implements `FromSql`
+  for the existing `input_json JSONB` column (the same type already
+  used to write it via `record_run`, so no new dependency either).
+  Updated `SKILL.md`'s `list_runs_by_target` bullet to describe the
+  new field and how to use it.
+  Verified: `cargo build --locked --release --bins` and `cargo test`
+  (14/14 - 12 lib + 2 main.rs) clean, including the real
+  `postgres_store_round_trip_when_configured` test exercising
+  `list_runs_by_target` against a real database. This is a core Rust
+  change - redeploying needs the full `build-deb.sh`/`apt install`
+  path, not a plugin-manifest reinstall. Live verification (a real
+  `list_runs_by_target` call showing input_json) still pending
+  redeploy.
