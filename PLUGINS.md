@@ -413,24 +413,119 @@ or local database under the invoking user's home directory (commonly
 Containers run as UID/GID `65534:65534` with no matching `/etc/passwd`
 entry, so `$HOME` typically resolves to `/`, and the write lands at
 `/.config/<tool>` or `/.cache/<tool>` on the read-only root — failing with
-a confusing, tool-specific error (a permission error, or in `amass`'s case
-a misleading "out of memory" panic) rather than anything that obviously
-points at the filesystem. Before deploying a new plugin, check whether its
-image writes anywhere outside `/artifacts` on a normal run (a quick
-`docker run --read-only <image> ...` smoke test reproduces this
-immediately), and add the specific path as a tmpfs mount if so:
+a confusing, tool-specific error (a permission error, an "out of memory"
+panic in `amass`'s case, or `katana`'s flatly misleading "Could not read
+flags: no such file or directory" — that one isn't a flag-parsing bug at
+all, it's `$HOME` resolution failing while trying to read a *default
+config file* before argument parsing even begins) rather than anything
+that obviously points at the filesystem. Before deploying a new plugin,
+check whether its image writes anywhere outside `/artifacts` on a normal
+run (a quick `docker run --read-only <image> ...` smoke test reproduces
+this immediately).
 
-```toml
-tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.config:rw,noexec,nosuid,nodev,size=8m"]
-```
+Two ways to fix it, depending on whether you control the Dockerfile:
 
-`subfinder`, `nuclei`, and `amass` all needed a `/.config` mount for
-exactly this reason; `kiterunner` needed `/.cache` instead. Size the mount
-only as large as the tool's actual config/cache footprint requires — these
-are tmpfs (RAM-backed), not disk, and count against the container's own
-resource limits.
+- **If you do** (building from source, or wrapping an official image in a
+  thin `FROM upstream/tool:tag` layer) — set `ENV HOME=/tmp` and add a
+  plain `/tmp` tmpfs mount. This is the simpler, more robust fix: one
+  setting handles *any* path the tool tries to use under `$HOME`, without
+  having to discover the tool's exact subpath first. `wpscan`,
+  `shodan-host`/`shodan-search`, `subfaster`, `virustotal-resolutions`, and
+  `katana` all use this.
+- **If you don't** (a plugin with no `Dockerfile` at all, pulling an
+  upstream image directly) — you can't set `ENV HOME`, so mount the
+  specific path the tool actually uses instead:
 
-Plugin containers always run as UID 65534. Some tools restrict permissions on their own output files as they write them (for example, `testssl.sh` writing its JSON/HTML reports); left alone, that leaves the file unreadable by the Slickchook service's own user afterward, so `read_artifact` and any other host-side read would fail even though the file exists. The runner fixes this automatically after every container exits — see SC-015 in `SECURITY_CONSIDERATIONS.md` for how. Plugin authors do not need to work around this themselves.
+  ```toml
+  tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m", "/.config:rw,noexec,nosuid,nodev,size=8m"]
+  ```
+
+  `subfinder`, `nuclei`, and `amass` all needed a `/.config` mount for
+  exactly this reason; `kiterunner` needed `/.cache` instead. Size the
+  mount only as large as the tool's actual config/cache footprint requires
+  — these are tmpfs (RAM-backed), not disk, and count against the
+  container's own resource limits.
+
+Plugin containers run as UID 65534 by default. Some tools restrict permissions on their own output files as they write them (for example, `testssl.sh` writing its JSON/HTML reports); left alone, that leaves the file unreadable by the Slickchook service's own user afterward, so `read_artifact` and any other host-side read would fail even though the file exists. The runner fixes this automatically after every container exits — see SC-015 in `SECURITY_CONSIDERATIONS.md` for how. Plugin authors do not need to work around this themselves.
+
+A handful of tools' real functionality needs actual root, not just a
+Docker capability grant — `[docker].run_as_root = true` runs both the
+plugin container and its permission-fixup follow-up as UID 0 instead.
+`nmap` is the reason this field exists: `-sS`/`-sU`/every scan technique
+besides plain TCP connect, `-O` OS detection, and `-f` fragmentation all
+hard-fail with Nmap's own "requires root privileges" error under UID
+65534 even with `NET_RAW` granted — confirmed live, not assumed, and it
+turned out `[docker].cap_add = ["NET_RAW"]` alone had never been enough
+for any of that. This is a real, deliberate exception to the fleet's
+unprivileged-by-default policy — set it only when a tool's own
+documented behavior (or a live "requires root" error) actually demands
+it, not preemptively. Setting it also requires the host's own
+`/var/lib/slickchook/artifacts` ACL to grant UID 0 alongside the usual
+UID 65534 (see `install-ubuntu.sh`/`build-deb.sh`'s `setfacl` calls) —
+without that, the permission-fixup step itself fails with a bare
+`Permission denied`, since a `--cap-drop ALL` container's root has no
+`CAP_DAC_OVERRIDE` and is still subject to normal file permission bits.
+Not every tool needing raw sockets actually needs this, though: `naabu`
+checks for the `NET_RAW` *capability* directly and falls back to a
+CONNECT scan with a log line if it's unavailable, rather than hard
+failing — test a tool's actual behavior before assuming it needs
+`run_as_root` just because it does something privileged-sounding.
+
+### Verify against the tool's real behavior, not its docs or `--help` text
+
+Every plugin in this fleet has, at some point, had a flag or an assumed
+behavior turn out wrong in a way only a real invocation caught — never a
+hypothetical concern, always a live bug that shipped and then got fixed.
+Treat each of these as a standing checklist before trusting a new
+manifest, not just historical trivia:
+
+- **Docs and generated help pages can be stale relative to the exact
+  version you're pinning.** Fetching a repo's `doc/` files (or any file)
+  without pinning the ref returns the *default branch*, which can already
+  be ahead of the release/commit your Dockerfile actually builds.
+  `virustotal-resolutions`' first attempt used docs describing
+  dedicated `vt domain resolutions`-style subcommands that don't exist in
+  the pinned build at all — reading the actual source at the exact pinned
+  commit (`?ref=<sha>` on a GitHub API content fetch, or the equivalent
+  for whatever host) resolved it, and should have been the first move,
+  not the fallback after a live failure.
+- **A tool can require a one-time setup step before its real
+  functionality even exists as a command.** `vt-cli` only registers
+  per-relationship subcommands from a local cache file that `vt init`
+  writes; skip `init` and the subcommand silently doesn't exist, falling
+  through to a different command entirely with a confusing error. `shodan
+  init` is the same shape of requirement. If a tool ships an `init`
+  or similar setup subcommand, assume it's load-bearing until proven
+  otherwise, not just a convenience wrapper around writing a config file.
+- **A flag that looks combinable in `--help` output might not be.**
+  Naabu's `-ip-version` genuinely accepts `4,6` joined together; Katana's
+  `-known-files` help text is formatted identically —
+  `(all,robotstxt,sitemapxml)` — but is actually a strict single-choice
+  enum, and errors outright if you join two values. The visual pattern in
+  `--help` text is not a reliable signal either way; run the actual
+  invocation with a real value before writing the option's description as
+  fact.
+- **A version tag in `--help`/release notes doesn't guarantee it's a
+  valid Go module version.** `go install pkg@vX.Y.Z` requires the
+  underlying git tag to actually be `vX.Y.Z` — `vt-cli`'s real tags are
+  `1.3.1` etc., with no `v` prefix, so the "obvious" invocation failed
+  with `unknown revision`. Pinning by the tag's exact commit SHA instead
+  sidesteps the mismatch entirely and is equally reproducible.
+- **The install step never runs the container, for any plugin.**
+  `slickchook-plugin install` validates declared `[[assets]]`, that the
+  manifest parses, and that the service restarts — nothing more. No
+  runtime-only bug (a missing dependency, a wrong default path, an
+  argument-parsing quirk) can ever be caught before a real `run_plugin`/
+  `start_plugin` call actually happens. Treat a merged manifest change as
+  unverified until it's been exercised live against a real target, not as
+  done once it builds.
+- **When a fix turns out wrong, say so plainly instead of quietly
+  editing history.** A wrong fix shipped for `shodan-host`/`shodan-search`
+  earlier this fleet's history (an unpinned `setuptools` "fix" that
+  didn't actually work); the correction was a new changelog entry stating
+  the prior one was wrong, not a silent edit to the original. The record
+  of what was tried and why it didn't work is worth as much as the
+  eventual right answer.
 
 Manifest validation rejects any capability beyond the two RUNNER.md
 documents (default none, or `NET_RAW` for tools that genuinely need raw

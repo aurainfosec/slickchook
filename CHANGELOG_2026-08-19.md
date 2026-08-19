@@ -76,3 +76,34 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live re-verification (a real crawl succeeding
   end-to-end) pending redeploy.
+
+- Documented every real bug found while building/fixing plugins this
+  week directly in `PLUGINS.md`, so future plugin work benefits from
+  them instead of repeating them:
+  - Corrected the existing `$HOME`/read-only-filesystem guidance,
+    which only described mounting a tool's specific `/.config`/`/.cache`
+    subpath - added the simpler `ENV HOME=/tmp` fix (one setting
+    handles any path, no need to discover the tool's exact subpath)
+    for whenever a Dockerfile is actually controlled, reserving the
+    specific-subpath-mount approach for pulled-image-only plugins with
+    no Dockerfile at all.
+  - Fixed a now-stale claim that "plugin containers always run as UID
+    65534" (no longer true since `run_as_root` was added) and added a
+    full explanation of when that field is actually warranted (`nmap`)
+    versus not (`naabu`, which checks the `NET_RAW` capability
+    directly and falls back gracefully), plus the artifacts-ACL
+    dependency it has on the host.
+  - Added a new "Verify against the tool's real behavior, not its
+    docs or `--help` text" section covering every other bug class hit
+    this week as a standing checklist: docs/generated help pages can
+    be stale relative to an exact pinned ref (`virustotal-resolutions`);
+    a tool can need a one-time init step before its real commands even
+    exist (`vt-cli`, `shodan`); a flag that looks comma-combinable in
+    `--help` text might be a strict single-choice enum instead
+    (`katana`'s `known_files`); a release tag doesn't guarantee it's a
+    valid Go module version (`vt-cli`'s unprefixed tags); the install
+    step never runs the container for any plugin, so nothing is
+    verified until a real live call happens; and correcting a wrong
+    fix should be a new, honest entry, not a silent edit to history
+    (the `shodan-host`/`shodan-search` `setuptools` episode).
+  Documentation-only change, no build/test impact.
