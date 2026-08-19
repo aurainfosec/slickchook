@@ -107,3 +107,39 @@
     fix should be a new, honest entry, not a silent edit to history
     (the `shodan-host`/`shodan-search` `setuptools` episode).
   Documentation-only change, no build/test impact.
+
+- Added a new `alterx` plugin (ProjectDiscovery's pattern-based
+  subdomain permutation generator) - fills the gap between Phase 1
+  passive discovery and Phase 2 active resolution: generates realistic
+  candidate subdomains from the naming patterns in what's already been
+  found (e.g. api-eu.example.com found -> api-us.example.com guessed),
+  rather than blind brute-forcing, since candidates come from the
+  actual input rather than a generic wordlist. Surfaced by researching
+  what's trending in the recon community; independently corroborated
+  as part of a commonly-cited "essential toolkit" alongside several
+  tools already in this fleet.
+  References the official `projectdiscovery/alterx:v0.1.0` Docker
+  image (confirmed real via its Dockerfile/dockerhub-push CI workflow).
+  Every flag verified against the real v0.1.0 binary's own `-h` output
+  (downloaded the Linux release directly, no docker access in this
+  sandbox).
+  Proactively applied the `$HOME`-relative-default-config lesson just
+  documented in `PLUGINS.md` from `katana`, rather than waiting to
+  rediscover it live a third time: confirmed directly with the real
+  binary that it panics outright (`$HOME is not defined`) with no
+  `$HOME` set, and produces correct, sensible output once `HOME=/tmp`
+  is set - added the same thin wrapper Dockerfile pattern from the
+  start.
+  `network = "none"` - this tool is pure local pattern-based text
+  generation with no network activity of its own (confirmed by testing
+  it fully locally), one of relatively few plugins in this fleet that
+  never touches the network at all.
+  Updated `SKILL.md` with a new, plugin-agnostic "between Phase 1 and
+  Phase 2" section describing the permutation-generation role
+  generically, per the standing plugin-agnostic-methodology rule.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Also live-tested the real binary directly
+  (both the $HOME panic and the working HOME=/tmp case) before writing
+  the manifest, catching the bug before it ever shipped rather than
+  after. Full end-to-end verification via the actual MCP server still
+  pending install, since this sandbox has no docker access.

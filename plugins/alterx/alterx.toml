@@ -1,0 +1,96 @@
+name = "alterx"
+container = "slickchook-plugin/alterx:local"
+description = "Generates pattern-based subdomain permutation candidates (ProjectDiscovery AlterX) from subdomains already discovered by a passive enumeration plugin - the missing step between Phase 1 passive discovery and Phase 2 active resolution. Passive sources only surface subdomains someone else already indexed; this fills the gap by inferring realistic candidates from the naming patterns already found (e.g. api-eu.example.com discovered -> api-us.example.com guessed), which can then be checked for real with a DNS-resolution plugin - a forgotten or unindexed host is often more interesting than what passive sources already surfaced. Deliberately not a blind brute-force wordlist tool: candidates come from patterns in the actual input, keeping the list small and targeted rather than the millions-of-guesses problem older permutation tools have. Pure local text generation, no network activity of its own - network is set to none. Built from a thin wrapper around the official projectdiscovery/alterx:v0.1.0 image with HOME set to a writable path - confirmed live that it panics outright (\"$HOME is not defined\") at startup otherwise, trying to load its default permutation config relative to $HOME under this fleet's usual unprivileged UID with no matching /etc/passwd entry - the same class of fix already needed by wpscan/shodan-host/subfaster/katana. No custom pattern/payload config file is bundled or exposed here (there's no mechanism in this fleet to inject an arbitrary runtime file into a container), so this relies entirely on AlterX's own built-in default patterns, confirmed live to produce sensible output on their own."
+fixed_args = ["-silent", "-disable-update-check"]
+
+[[options]]
+name = "subdomains"
+description = "Comma-separated subdomains already discovered (e.g. from a passive enumeration plugin's output) to generate permutations from. The more real examples given, the better the inferred patterns."
+required = true
+flag = "-l"
+
+[[options]]
+name = "pattern"
+description = "Comma-separated custom permutation patterns to use instead of AlterX's own built-in defaults, in its own DSL (see upstream docs) - e.g. \"{{sub}}-{{word}}\"."
+required = false
+flag = "-p"
+
+[[options]]
+name = "mode"
+description = "Pattern source: default (AlterX's own built-in patterns), discover (mine new patterns from the input subdomains via clustering instead), or both. discover can surface patterns specific to this target's own naming conventions that the built-in defaults wouldn't guess."
+required = false
+flag = "-mode"
+
+[[options]]
+name = "min_distance"
+description = "Minimum Levenshtein distance for clustering in discover/both mode. Omit for AlterX's own default (2)."
+required = false
+flag = "-min-distance"
+
+[[options]]
+name = "max_distance"
+description = "Maximum Levenshtein distance for clustering in discover/both mode. Omit for AlterX's own default (10)."
+required = false
+flag = "-max-distance"
+
+[[options]]
+name = "pattern_threshold"
+description = "Filters out low-quality discovered patterns below this threshold. Only relevant with discover/both mode. Omit for AlterX's own default (500)."
+required = false
+flag = "-pattern-threshold"
+
+[[options]]
+name = "quality_ratio"
+description = "Synthetic-to-observed ratio threshold for discovered pattern quality. Only relevant with discover/both mode. Omit for AlterX's own default (25)."
+required = false
+flag = "-quality-ratio"
+
+[[options]]
+name = "ngrams_limit"
+description = "Limit on n-grams processed during pattern discovery, for bounding cost on a very large input list. Omit for AlterX's own default (unlimited)."
+required = false
+flag = "-ngrams-limit"
+
+[[options]]
+name = "enrich"
+description = "Enrich the generated wordlist by also extracting standalone words from the input subdomains themselves."
+required = false
+flag = "-en"
+
+[[options]]
+name = "estimate"
+description = "Only estimate how many permutations would be generated, without actually generating them - useful for sanity-checking a pattern/input combination before committing to a full run."
+required = false
+flag = "-es"
+
+[[options]]
+name = "limit"
+description = "Cap the number of generated candidates returned. Omit for AlterX's own default (0, unlimited) - worth setting explicitly on a large input to keep the candidate list a manageable size to actually resolve afterward."
+required = false
+flag = "-limit"
+
+[[options]]
+name = "max_output_size"
+description = "Maximum output size (e.g. 5mb) - a hard ceiling on how large the generated wordlist file can get."
+required = false
+flag = "-max-size"
+
+[[options]]
+name = "save_rules"
+description = "Save discovered patterns and metadata to this exact path for later review - must be under /artifacts/ (e.g. /artifacts/rules.json) to actually be retrievable afterward via list_run_artifacts/read_artifact. Only works with discover/both mode."
+required = false
+flag = "-save-rules"
+
+[[options]]
+name = "verbose"
+description = "Show AlterX's own verbose logging."
+required = false
+flag = "-v"
+
+[docker]
+network = "none"
+memory = "256m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
