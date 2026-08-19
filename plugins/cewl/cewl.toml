@@ -1,0 +1,156 @@
+name = "cewl"
+container = "slickchook-plugin/cewl:local"
+description = "Spiders one authorized website (CeWL - Custom Word List generator) to build a target-specific wordlist from the vocabulary actually found on the site - company jargon, product names, staff names in document metadata - rather than a generic dictionary. Genuinely dual-purpose: the same output feeds both username-permutation patterns and password-guessing lists, since people build both out of the same words and names that show up on their own site. No manually-supplied personal details needed, unlike a profile-based password generator - just an authorized URL already in scope. Built from source pinned to the 6.2.1 tag (no fixed-version published image exists to reference directly) - closely mirrors upstream's own reference Dockerfile. Licensed CC-BY-SA 2.0 or GPL-3+ (confirmed from the script's own header, no separate LICENSE file in the repo). offsite lets the spider follow links to other domains entirely - a real scope risk, leave off unless the engagement specifically authorizes it. exclude (a file-based exclusion list) is not exposed - this fleet has no mechanism to inject an arbitrary runtime file into a container; allowed (an inline regex) is exposed instead as the closest equivalent. By default the wordlist goes to stdout, captured the same way as any other plugin's output; write/meta_file/email_file, if used, must point to an exact /artifacts/... path to actually be retrievable afterward via list_run_artifacts/read_artifact."
+fixed_args = []
+
+[[arguments]]
+name = "target"
+description = "Authorized site URL to spider."
+required = true
+position = 1
+
+[[options]]
+name = "depth"
+description = "Spider depth. Omit for CeWL's own default (2)."
+required = false
+flag = "-d"
+
+[[options]]
+name = "min_word_length"
+description = "Minimum word length to include. Omit for CeWL's own default (3)."
+required = false
+flag = "-m"
+
+[[options]]
+name = "max_word_length"
+description = "Maximum word length to include. Omit for no limit (CeWL's own default)."
+required = false
+flag = "-x"
+
+[[options]]
+name = "offsite"
+description = "Let the spider follow links to other domains entirely, not just the target site - a real scope risk. Leave off unless the engagement specifically authorizes crawling beyond the one authorized site."
+required = false
+flag = "-o"
+
+[[options]]
+name = "allowed"
+description = "Regex pattern a path must match to be followed - narrows the crawl to a specific section of the site."
+required = false
+flag = "--allowed"
+
+[[options]]
+name = "write"
+description = "Write the wordlist to this exact path instead of stdout - must be under /artifacts/ (e.g. /artifacts/wordlist.txt) to actually be retrievable afterward. Omit to use the default (stdout, captured the same way as any other plugin's output)."
+required = false
+flag = "-w"
+
+[[options]]
+name = "user_agent"
+description = "User agent string to send while crawling."
+required = false
+flag = "-u"
+
+[[options]]
+name = "no_words"
+description = "Don't output the wordlist itself - only useful together with meta or email, when only that data is wanted."
+required = false
+flag = "-n"
+
+[[options]]
+name = "groups"
+description = "Also return groups of this many adjacent words combined - useful password-guessing material, since people often combine two real words from the same page."
+required = false
+flag = "-g"
+
+[[options]]
+name = "lowercase"
+description = "Lowercase every word in the output."
+required = false
+flag = "--lowercase"
+
+[[options]]
+name = "with_numbers"
+description = "Also accept words containing numbers, not just pure letters."
+required = false
+flag = "--with-numbers"
+
+[[options]]
+name = "convert_umlauts"
+description = "Convert common Latin-1 umlauts to their ASCII equivalent (ae/oe/ue/ss)."
+required = false
+flag = "--convert-umlauts"
+
+[[options]]
+name = "meta"
+description = "Also extract author/creator names from document metadata found on the site (PDFs, Office docs, etc.) - genuinely useful for username profiling, since it surfaces real names tied to real documents rather than just page text."
+required = false
+flag = "-a"
+
+[[options]]
+name = "meta_file"
+description = "Write extracted metadata to this exact path - must be under /artifacts/ to be retrievable afterward. Only relevant with meta enabled."
+required = false
+flag = "--meta_file"
+
+[[options]]
+name = "email"
+description = "Also extract email addresses found in mailto links on the site."
+required = false
+flag = "-e"
+
+[[options]]
+name = "email_file"
+description = "Write extracted email addresses to this exact path - must be under /artifacts/ to be retrievable afterward. Only relevant with email enabled."
+required = false
+flag = "--email_file"
+
+[[options]]
+name = "show_count"
+description = "Show how many times each word was found - higher counts are often more central to the target's own vocabulary and worth prioritizing."
+required = false
+flag = "-c"
+
+[[options]]
+name = "keep"
+description = "Keep the raw downloaded pages instead of discarding them after processing."
+required = false
+flag = "-k"
+
+[[options]]
+name = "auth_type"
+description = "HTTP authentication type for crawling behind a login: digest or basic."
+required = false
+flag = "--auth_type"
+
+[[options]]
+name = "auth_user"
+description = "Username for HTTP authentication. Only relevant with auth_type set."
+required = false
+flag = "--auth_user"
+
+[[options]]
+name = "auth_pass"
+description = "Password for HTTP authentication - a real, test-only credential for this one call, not a persistent secret. Only relevant with auth_type set."
+required = false
+flag = "--auth_pass"
+
+[[options]]
+name = "header"
+description = "One custom header to send with every request, name:value format. CeWL supports passing multiple -H flags for several headers at once, but this option only supports a single one - not verified whether a comma- or otherwise-combined value works as a substitute."
+required = false
+flag = "-H"
+
+[[options]]
+name = "verbose"
+description = "Show CeWL's own verbose output."
+required = false
+flag = "-v"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 600
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
