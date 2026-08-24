@@ -276,3 +276,49 @@
   nothing else broke.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Added a new `theharvester` plugin - aggregates emails/subdomains/
+  names/IPs/URLs for an authorized domain from many passive sources at
+  once, via theHarvester (github.com/laramies/theHarvester). Built per
+  a direct request specifically requiring artifact retention and
+  credential reuse across plugins, not just a basic wrap.
+  Confirmed actively maintained (real commits the same day this was
+  written) before building - pinned to the real latest release
+  (`4.11.1`, unprefixed tag) rather than PyPI's own drastically stale
+  published package (`0.0.1`).
+  Always writes a JSON and an XML export under `/artifacts` via a
+  fixed `-f` flag the caller can't override, satisfying the artifact-
+  retention requirement directly rather than leaving results only in
+  console output.
+  Confirmed directly from source, not assumed, that theHarvester reads
+  API keys *only* from its own local YAML config file - zero
+  environment-variable support anywhere in its credential-loading path
+  (the same gap `waymore` has, noted at the time but never wired up -
+  wired up here since credential reuse was explicitly requested this
+  time). Fetched the real `api-keys.yaml` template at the pinned tag to
+  confirm the exact nested structure before writing a generator for
+  it, then tested that generator directly (including a value containing
+  a literal double-quote, to confirm escaping) by round-tripping the
+  output back through a real YAML parser, not just eyeballing the text.
+  Declares 38 `[[secrets]]` total: 5 deliberately reuse the exact same
+  `env_var` name as an already-installed plugin covering the same
+  underlying provider (`SHODAN_API_KEY`, `VT_API_KEY`, `GH_TOKEN`,
+  `BRAVE_API_KEY`, `DEHASHED_API_KEY`) - configuring any of those once
+  already makes it available here too - and 33 new
+  `THEHARVESTER_*`-prefixed ones for every other key-requiring source
+  theHarvester supports that no other installed plugin already covers.
+  Every one is optional; theHarvester works fine on its many free/
+  keyless sources alone if nothing is configured.
+  Documented both new patterns in `PLUGINS.md`: that reusing the same
+  `env_var` across plugins for a shared provider is intentional and
+  supported, not a collision to avoid; and a new "wrapping a tool that
+  only reads secrets from its own config file" section generalizing the
+  existing CLI-flag-wrapper pattern to the config-file case, since this
+  is the second tool found with this exact shape.
+  No `SKILL.md` change needed - this is a Phase 1 passive-enumeration
+  tool, already covered by its existing generic wording.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (the `scan_plugins`-based tests exercise every
+  manifest under `plugins/`, including this one's 38 secrets, and
+  passed). No docker access in this sandbox to build/run the image
+  locally; live verification pending install.

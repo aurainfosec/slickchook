@@ -125,6 +125,18 @@ deployment-side mechanism, and SECURITY_CONSIDERATIONS.md's SC-018 for the
 residual trust boundary: once inside the container, the value is exposed to
 that container exactly as fully as the plugin's own code.
 
+Reusing the exact same `env_var` name across multiple plugins is
+intentional and supported, not a naming collision to avoid, whenever two
+plugins genuinely use the same underlying provider — `theharvester`
+declares `SHODAN_API_KEY`/`VT_API_KEY`/`GH_TOKEN`/`BRAVE_API_KEY`/
+`DEHASHED_API_KEY` alongside its own source-specific secrets, so an
+administrator who's already configured any of those for `shodan-host`/
+`shodan-search`, `virustotal-resolutions`, `github-code-search`,
+`brave-dork-search`, or `dehashed` gets that same credential available
+here too, with nothing extra to configure. `list_plugins`' `configured:
+true/false` per declared secret reflects this correctly per plugin,
+since it's the same underlying value looked up by the same name.
+
 ### Wrapping an upstream tool that wants the secret as a CLI flag
 
 `[[secrets]]` only gets a value as far as an environment variable inside
@@ -155,6 +167,24 @@ exec realtool --api-token "$REALTOOL_API_TOKEN" "$@"
 the wrapper; the `shodan-*` plugins build a small image from scratch
 (`shodan`'s own CLI has no official image) and use `shodan init` as the
 one-time credential step instead of a per-call flag.
+
+### Wrapping a tool that only reads secrets from its own config file
+
+Some tools go a step further than expecting a CLI flag: they read API keys
+*only* from a local config file (YAML, INI, whatever) with no environment
+variable support at all, anywhere in their credential-loading path —
+`theharvester` is exactly this shape, confirmed directly from its own
+source (`waymore` has the identical gap, noted in an earlier changelog
+entry but never wired up). The fix is the same idea as the CLI-flag case,
+just writing a file instead of building an argv: a thin entrypoint reads
+whichever `[[secrets]]` env vars are actually set, writes the tool's own
+real config file format to wherever it expects to find one, then `exec`s
+the real binary. `theharvester`'s `entrypoint.py` does this for its
+`api-keys.yaml` — every field is optional, since the tool works fine on
+its keyless sources alone if a given secret isn't configured. Test the
+generated file with the tool's own config loader (or at minimum a real
+YAML/INI parser) before shipping — a subtly wrong format fails silently
+exactly like a missing one, just harder to notice.
 
 ## Custom (first-party) plugins
 

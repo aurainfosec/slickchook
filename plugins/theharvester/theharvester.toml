@@ -1,0 +1,268 @@
+name = "theharvester"
+container = "slickchook-plugin/theharvester:local"
+description = "Aggregates emails, subdomains, names, IPs, and URLs for an authorized domain from many passive sources at once, via theHarvester (github.com/laramies/theHarvester, actively maintained - real commits the same day this was written, pinned to the real latest release 4.11.1 since its own PyPI package is drastically stale at 0.0.1). Always writes both a JSON and an XML export under /artifacts (via a fixed, non-overridable -f flag) in addition to the usual stdout/stderr capture, so results are reliably retrievable afterward, not just visible in console output. Most sources are free/keyless (certspotter, chaos, commoncrawl, crtsh, duckduckgo, gitlab, otx, rapiddns, robtex, subdomaincenter, threatcrowd, urlscan, waybackarchive, yahoo, shodanInternetDB, hudsonrock, baidu, bufferoverun, dnsdumpster, mojeek, netlas, onyphe, and more) and work with no configuration at all. Many others need an API key, read only from theHarvester's own local config file - it has no environment-variable support of its own at all (confirmed directly from its source) - so this plugin's entrypoint writes that file from whichever of the secrets below are actually configured, before every run. Where an already-installed plugin already covers the same underlying provider, this reuses that exact same secret rather than declaring a redundant one: SHODAN_API_KEY (shodan-host/shodan-search), VT_API_KEY (virustotal-resolutions), GH_TOKEN (github-code-search), BRAVE_API_KEY (brave-dork-search), DEHASHED_API_KEY (dehashed) - configuring any of those once already makes them available here too, no separate configuration needed. Every other key-requiring source gets its own THEHARVESTER_*-prefixed secret below, since no other installed plugin covers that provider; every one of them is optional - theHarvester works fine on its free sources alone, and missing-key warnings for the rest are suppressed. source selects which of these to actually query (comma-separated, or 'all') - narrowing it to only sources you have keys for (or only the free ones) avoids wasted requests to sources that will just report a missing key. shodan additionally queries Shodan for each discovered host specifically (distinct from shodan just being one of the listed sources above) - needs SHODAN_API_KEY. take_over checks discovered subdomains for a subdomain-takeover condition. dns_resolve/dns_lookup/dns_brute control additional DNS-side enrichment of discovered hosts. Screenshotting and wordlist-based API-endpoint scanning (theHarvester's own --screenshot/-w/-a flags) are deliberately not exposed - the former overlaps this fleet's own gowitness/screensanitize pairing and needs a real browser, the latter needs an arbitrary wordlist file this schema has no way to supply per call."
+fixed_args = ["-f", "/artifacts/results", "-q"]
+
+[[options]]
+name = "domain"
+description = "Authorized domain to search for."
+required = true
+flag = "-d"
+
+[[options]]
+name = "source"
+description = "Comma-separated source name(s) to query, or 'all'. See this plugin's own description for the full free/keyless list, and check which secrets are configured below for the rest."
+required = false
+flag = "-b"
+default = "all"
+
+[[options]]
+name = "limit"
+description = "Maximum results to return per source. Omit for theHarvester's own default (500)."
+required = false
+flag = "-l"
+
+[[options]]
+name = "start"
+description = "Result offset to start at, for paging through a source with more results than limit."
+required = false
+flag = "-S"
+
+[[options]]
+name = "shodan"
+description = "Additionally query Shodan for each discovered host specifically (distinct from shodan being one of the queryable sources) - needs SHODAN_API_KEY configured."
+required = false
+flag = "-s"
+
+[[options]]
+name = "dns_server"
+description = "DNS server to use for resolution/brute-forcing."
+required = false
+flag = "-e"
+
+[[options]]
+name = "take_over"
+description = "Check discovered subdomains for a subdomain-takeover condition."
+required = false
+flag = "-t"
+
+[[options]]
+name = "dns_resolve"
+description = "Resolve discovered hosts using theHarvester's own default resolver list."
+required = false
+flag = "-r"
+
+[[options]]
+name = "dns_lookup"
+description = "Perform basic DNS lookups (A/AAAA/etc) against discovered hosts."
+required = false
+flag = "-n"
+
+[[options]]
+name = "dns_brute"
+description = "Brute-force subdomains via DNS using theHarvester's own bundled wordlist."
+required = false
+flag = "-c"
+
+[[secrets]]
+env_var = "SHODAN_API_KEY"
+description = "Shodan API key - shared with shodan-host/shodan-search if already configured there."
+required = false
+
+[[secrets]]
+env_var = "VT_API_KEY"
+description = "VirusTotal API key - shared with virustotal-resolutions if already configured there."
+required = false
+
+[[secrets]]
+env_var = "GH_TOKEN"
+description = "GitHub personal access token - shared with github-code-search if already configured there."
+required = false
+
+[[secrets]]
+env_var = "BRAVE_API_KEY"
+description = "Brave Search API key - shared with brave-dork-search if already configured there."
+required = false
+
+[[secrets]]
+env_var = "DEHASHED_API_KEY"
+description = "Dehashed API key - shared with the dehashed plugin if already configured there."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_BEVIGIL_KEY"
+description = "BeVigil API key, for the bevigil source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_BITBUCKET_KEY"
+description = "Bitbucket API key, for the bitbucket source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_BUFFEROVERUN_KEY"
+description = "BufferOver API key, for the bufferoverun source (also works keyless with reduced results)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_BUILTWITH_KEY"
+description = "BuiltWith API key, for the builtwith source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_CENSYS_ID"
+description = "Censys API ID, for the censys source (used together with THEHARVESTER_CENSYS_SECRET)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_CENSYS_SECRET"
+description = "Censys API secret, for the censys source (used together with THEHARVESTER_CENSYS_ID)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_CRIMINALIP_KEY"
+description = "Criminal IP API key, for the criminalip source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_DNSDUMPSTER_KEY"
+description = "DNSDumpster API key, for the dnsdumpster source (also works keyless with reduced results)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_DYMO_KEY"
+description = "Dymo API key, for the dymo source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_FOFA_KEY"
+description = "FOFA API key, for the fofa source (used together with THEHARVESTER_FOFA_EMAIL)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_FOFA_EMAIL"
+description = "FOFA account email, for the fofa source (used together with THEHARVESTER_FOFA_KEY)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_FULLHUNT_KEY"
+description = "FullHunt API key, for the fullhunt source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_HACKERTARGET_KEY"
+description = "HackerTarget API key, for the hackertarget source (also works keyless with reduced results)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_HAVEIBEENPWNED_KEY"
+description = "Have I Been Pwned API key, for the haveibeenpwned source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_HUNTER_KEY"
+description = "Hunter.io API key, for the hunter source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_HUNTERHOW_KEY"
+description = "Hunter.how API key, for the hunterhow source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_INTELX_KEY"
+description = "Intelligence X API key, for the intelx source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_LEAKIX_KEY"
+description = "LeakIX API key, for the leakix source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_LEAKLOOKUP_KEY"
+description = "LeakLookup API key, for the leaklookup source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_MOJEEK_KEY"
+description = "Mojeek API key, for the mojeek source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_NETLAS_KEY"
+description = "Netlas API key, for the netlas source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_ONYPHE_KEY"
+description = "Onyphe API key, for the onyphe source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_PENTESTTOOLS_KEY"
+description = "PentestTools API key, for the pentesttools source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_PROJECTDISCOVERY_KEY"
+description = "ProjectDiscovery Chaos API key, for the projectdiscovery source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_ROCKETREACH_KEY"
+description = "RocketReach API key, for the rocketreach source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_SECURITYSCORECARD_KEY"
+description = "SecurityScorecard API key, for the securityscorecard source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_SECURITYTRAILS_KEY"
+description = "SecurityTrails API key, for the securityTrails source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_SHERLOCKEYE_KEY"
+description = "Sherlock Eye API key, for the sherlockeye source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_TOMBA_KEY"
+description = "Tomba API key, for the tomba source (used together with THEHARVESTER_TOMBA_SECRET)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_TOMBA_SECRET"
+description = "Tomba API secret, for the tomba source (used together with THEHARVESTER_TOMBA_KEY)."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_VENACUS_KEY"
+description = "Venacus API key, for the venacus source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_WHOISXML_KEY"
+description = "WhoisXML API key, for the whoisxml source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_WINDVANE_KEY"
+description = "Windvane API key, for the windvane source."
+required = false
+
+[[secrets]]
+env_var = "THEHARVESTER_ZOOMEYE_KEY"
+description = "ZoomEye API key, for the zoomeye source."
+required = false
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 1800
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
