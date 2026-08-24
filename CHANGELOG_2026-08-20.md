@@ -272,3 +272,71 @@
   nothing else broke.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Added a new `cloud-storage-enum` plugin - checks for AWS S3 buckets,
+  Google Cloud Storage buckets, and Azure Blob Storage containers
+  belonging to an authorized organization, given a brand keyword.
+  Prompted by a direct follow-up request after recommending it as the
+  strongest remaining fleet gap - distinct from the already-installed
+  `saas-enum` (which only checks enterprise SaaS vanity domains, not
+  raw cloud storage).
+  Confirmed `initstring/cloud_enum` (MIT) is real and actively
+  maintained (last pushed 2026-07-09) before building anything - it
+  already implements exactly this, including an S3 rate-limit
+  ('Slow Down') breakout already built in. Deliberately doesn't wrap
+  its full CLI, though: its own `run_all()` per provider also probes
+  several unrelated non-storage services (Firebase RTDB, App Engine,
+  Cloud Functions, AWS Apps, Azure VMs/websites/databases/Key Vault)
+  with no flag to scope those out - out of the requested storage-only
+  scope, and more requests against a target's cloud footprint than
+  asked for. Instead, imports and calls its own real
+  `check_s3_buckets`/`check_gcp_buckets`/`check_storage_accounts`/
+  `brute_force_containers` functions directly as a library, confirmed
+  by reading the exact source at a pinned commit
+  (`d3dba3716e10262f0c18a30f381a5eb617d7afd5`) - both the latest git
+  tag (`v0.2`) and the PyPI-published package (`0.0.1`) are stale
+  relative to the real current source's own `pyproject.toml` version
+  (`0.8`), confirmed live rather than assumed, so pinned by commit
+  instead of either.
+  Confirmed real, per-provider detection signals directly from the
+  library's own response-handling logic (not assumed to be uniform
+  across providers): S3 and GCS both give a clean three-state signal
+  (404 not-found, 403 exists-but-not-listable, 200 exists-and-listable)
+  - including the important nuance that 403 only means "not listable,"
+  not necessarily fully private, since S3/GCS separate object-read
+  permission from bucket-list permission. Azure is genuinely messier -
+  confirmed no equivalently clean "exists but private" signal for
+  containers specifically - documented as a real, honest limitation
+  rather than implied to work as cleanly as S3/GCS.
+  `fuzz.txt` (the library's own real, bundled 306-entry mutation/
+  brute-force wordlist - not invented for this plugin) isn't declared
+  as package data anywhere upstream (no `MANIFEST.in`, no
+  `package_data`/`include-package-data` in `pyproject.toml`) -
+  confirmed it wouldn't survive a plain `pip install`, so fetched
+  separately at the same pinned commit and committed into this
+  plugin's own directory, declared via `[[assets]]` matching
+  `feroxbuster`'s existing bundled-wordlist convention (which also
+  gets real install-time verification, not just documentation).
+  `quickscan` skips all ~1800 keyword+mutation combinations for a fast
+  bare-keyword-only sanity check first. Set `timeout_seconds` to 1800
+  given the realistic default-run request volume across three
+  providers plus any found Azure accounts' own container
+  brute-forcing.
+  No `SKILL.md` change needed - same reasoning as `saas-enum`, which
+  this plugin closely parallels in shape (queries third-party cloud
+  infrastructure using target-derived candidate names, not the
+  target's own infrastructure directly) - Phase 1's existing generic
+  wording already covers it.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (the `scan_plugins`-based tests exercise every
+  manifest under `plugins/`, including this one's `[[assets]]`
+  declaration, and passed). Every relevant function's exact real logic
+  (status-code branches, mutation combinatorics, brute-force scoping)
+  was read directly from the pinned commit's source before designing
+  around it. Full runtime verification (the actual Python import chain
+  and a real HTTP check) couldn't be exercised in this sandbox - no
+  `pip` available at all here (a first for this session; every other
+  plugin so far could at least be partially tested locally), so this
+  one relies more heavily on source-level verification than most;
+  container build and live verification are both still pending
+  install.
