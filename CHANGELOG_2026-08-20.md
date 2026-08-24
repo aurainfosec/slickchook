@@ -237,3 +237,38 @@
   --lib` (12/12) clean. No docker access in this sandbox to build/run
   the image locally; live verification through the actual MCP server
   pending install.
+
+- Live-verified `url-export` after install: a real run against a
+  deliberately messy mixed sample (a plain URL, a bare hostname, a
+  JSON array, a duplicate, and an out-of-scope citation URL) correctly
+  deduplicated, added the `https://` scheme to the bare hostname, and
+  dropped the out-of-scope URL - exit code 0, both `urls.txt`/
+  `urls.json` landed correctly under `/artifacts/`, matching exactly
+  what local testing had already confirmed before merging.
+
+- Corrected `url-export`'s manifest description, which had asserted
+  (from memory, explicitly flagged at the time as unverified and
+  pending separate research) that "Burp doesn't have a simple native
+  bulk-URL-list import." Real research against PortSwigger's own
+  documentation shows that claim was wrong: Burp Suite's Target >
+  Scope > Advanced scope control has a native **Load** button that
+  imports a plain-text file in exactly the one-URL-per-line format
+  this plugin already produces, directly into scope - no edition
+  restriction noted. Documented the real, verified mechanics in
+  `RUNNER.md` (a new "Importing exported URLs into Burp Suite"
+  section): the Load button populates *scope* (the allow-list filter),
+  not the *Site Map* itself, since the Site Map only fills in as Burp
+  actually observes real traffic; the BApp Store extension **Add to
+  SiteMap+** (confirmed real and currently listed) is the option when
+  Site Map population specifically is wanted instead; and a
+  curl-through-the-proxy replay is documented as a universal fallback
+  that works with any intercepting proxy, not just Burp, with the
+  practical caveats about `-k`/Burp's CA cert and the Intercept toggle
+  not needing to be off. This is a correction to a explicitly-flagged
+  unverified claim, not a silent edit - the original wording was
+  written knowing it was unconfirmed, and is now replaced with what
+  was actually confirmed.
+  Documentation-only change, no build/test impact beyond confirming
+  nothing else broke.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.

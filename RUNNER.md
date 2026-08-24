@@ -415,6 +415,36 @@ container exactly as fully as the plugin's own code — see SC-018 in
 SECURITY_CONSIDERATIONS.md before configuring a real credential for a
 plugin you haven't reviewed.
 
+## Importing exported URLs into Burp Suite
+
+A `url-export`-style plugin (see PLUGINS.md) produces a plain-text list of
+URLs, one per line — matching exactly what Burp Suite's own native bulk
+import expects, confirmed directly against PortSwigger's documentation
+rather than assumed:
+
+- **Target tab → Scope sub-tab → Advanced scope control → Load** imports a
+  file of URLs/hostnames, one per line, directly into Burp's scope
+  (no edition restriction noted — this isn't a Professional-only Live
+  Tasks feature). A **Paste URL** button next to it takes a single URL
+  from the clipboard the same way. Regex isn't applied to a loaded
+  file's entries — each line becomes a literal match.
+- This populates **scope** (the allow-list filter controlling what Burp
+  will act on), not the **Site Map** itself — the Site Map only fills in
+  as Burp actually observes real HTTP traffic (via its proxy or active
+  scanning), so loading a scope file doesn't retroactively create Site
+  Map entries for URLs Burp has never seen.
+- To seed the **Site Map** directly from the same list, install the BApp
+  Store extension **Add to SiteMap+**, which reads a plaintext URL file
+  and adds its entries into the Site Map for selected hosts directly.
+- A universal fallback that works with any intercepting proxy, not just
+  Burp: replay each URL through the proxy so it's observed as real
+  traffic, e.g. `xargs -I{} curl -s -k -x http://127.0.0.1:8080 {} -o
+  /dev/null < urls.txt` (`-k`/`--insecure` skips Burp's self-signed CA
+  cert — installing Burp's real CA certificate is the more correct choice
+  for anything beyond a quick one-off). Burp's Proxy "Intercept" toggle
+  only affects manual interception of in-flight requests, not passive
+  Site Map recording, so it doesn't need to be off for this to work.
+
 ## Static-analysis input mounts
 
 Every plugin run receives a per-run staging directory at `artifacts/<run-id>/input`.
