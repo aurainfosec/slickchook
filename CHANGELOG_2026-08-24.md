@@ -218,3 +218,29 @@
   is the third real bug found in this one plugin through live testing
   alone, none of which were visible from reading the tool's own
   `--help` text or its README.
+
+- Fixed a fourth real `jwt-analyzer` bug, caught by comparing a direct
+  `docker run` (root, no `--read-only`) against the actual redeployed
+  behavior through slickchook itself, which was still silently
+  stopping in the exact same place: the direct run decoded the token
+  perfectly, confirming the `-b`/config-bootstrap fixes above were
+  both correct - the remaining difference was that this fleet's
+  containers always run `--read-only` as an unprivileged UID, which a
+  bare `docker run` doesn't apply. jwt_tool writes a log line and a
+  marker file under `~/.jwt_tool` on *every* invocation, not just the
+  first - so even with a valid config baked into the image, that
+  directory being read-only at runtime made every single run fail
+  silently the same way the original first-run bug did, just for a
+  different underlying reason.
+  Fixed with a small wrapper entrypoint (`entrypoint.sh`) that copies
+  the read-only, build-time-baked `~/.jwt_tool` template into the
+  writable tmpfs `/tmp` on every run and points `HOME` there, rather
+  than trying to make the baked-in copy itself writable (`chmod -R
+  0777` on a read-only-mounted path does nothing - permission bits
+  don't matter when the mount itself refuses writes). `chmod -R a+rX`
+  on the baked-in source directory instead, so the unprivileged
+  runtime UID can read and copy it even though it doesn't own it.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. This is the fourth real bug found in this one
+  plugin through live testing alone - live re-verification pending
+  redeploy.
