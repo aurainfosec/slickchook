@@ -143,3 +143,48 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. No docker access in this sandbox to build/run
   the image locally; live verification pending install.
+
+- Live-verified `email-security-posture` after install against
+  `github.com`: SPF/DMARC output matched exactly what had already been
+  confirmed via direct DNS-over-HTTPS queries during development, and
+  the DKIM selector check turned up real hits across six different
+  selectors at once (`google`, `selector1`, `k1`, `k2`, `s1`, `s2`) -
+  an unexpectedly strong real-world confirmation that the curated
+  common-selector list has genuine practical value, not just
+  theoretical plausibility. Exit code 0, `findings.json` written
+  correctly.
+
+- Fixed two real bugs in `jwt-analyzer` found on its very first live
+  test - a plain decode of the standard jwt.io example token returned
+  completely empty output (empty stdout, empty stderr, `exit_code`
+  1 - jwt_tool exits 1 unconditionally on every invocation by design,
+  confirmed from its own source, so that part alone wasn't the
+  problem):
+  1. `jwt_tool`'s own `-b`/`--bare` flag - hardcoded into `fixed_args`
+     for "cleaner output" - actually suppresses nearly *all* of its
+     informational output, not just the decorative banner its own
+     `--help` text implies. Confirmed directly from source: almost
+     every print in the tool routes through one helper function that
+     `-b` disables outright, including the decoded-claims printout
+     itself - the one thing this plugin exists to produce. Removed
+     from `fixed_args` entirely.
+  2. While tracing that bug, also found and preemptively fixed a
+     second, related one before it could bite live: jwt_tool's
+     key-confusion exploit (`-X k`) and its RSA/EC/PSS signing modes
+     both call Python's `open()` directly on the given key argument -
+     meaning `pubkey`/`privkey` need a real file already present on
+     disk, not key content passed as a plain value, despite the
+     tool's own `--help` text describing them as "Public/Private Key"
+     content generically. This fleet's per-call options schema has no
+     way to supply an arbitrary file per invocation, so `pubkey`,
+     `privkey`, the `k` exploit choice, and the rs*/es*/ps* `sign`
+     choices are all removed - narrowing the manifest to exactly what
+     was confirmed (by reading every relevant function's actual
+     source, not just its own docs) to work with plain string/no-file
+     inputs: exploit choices a/n/p/b/i (the last confirmed to
+     self-provision its own demo signing key into the already-writable
+     `$HOME` on first use, not requiring anything from the caller),
+     `crack`/`password`, and `sign` limited to hs256/hs384/hs512.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live re-verification (a real decode actually
+  producing output, plus an exploit/crack path) pending redeploy.
