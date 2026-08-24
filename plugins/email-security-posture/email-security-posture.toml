@@ -1,0 +1,36 @@
+name = "email-security-posture"
+container = "slickchook-plugin/email-security-posture:local"
+description = "Checks an authorized domain's SPF, DKIM, and DMARC DNS records for common misconfigurations - purely passive DNS lookups, no contact with the domain's actual mail infrastructure at all. Flags a missing SPF/DMARC record, more than one SPF record (RFC 7208 requires exactly one - having two makes SPF evaluation fail for everyone), a permissive SPF all-mechanism (+all/bare all lets any server send mail as the domain; ~all/?all provide weak or no enforcement; -all is the strong case), an SPF record over the RFC 7208 10-DNS-lookup limit (an approximate count - nested 'include' chains aren't recursively resolved, so the real total may be higher), a DMARC policy of p=none (monitoring-only, no real enforcement) or a pct= below 100 (only that percentage of failing mail is actually subject to the policy), and a missing DMARC rua= reporting address. DKIM has no discoverable canonical location in DNS - the selector is chosen by whoever configured the domain's mail provider - so this checks a list of selectors publicly documented as defaults by widely-used providers (Google Workspace, Microsoft 365, SendGrid, Mailchimp/Mandrill, Constant Contact, ProtonMail) plus several generic self-hosted conventions. This is inherently a best-effort guess, not an exhaustive or authoritative check - a 'not found' result across every checked selector does not mean DKIM isn't configured, only that it isn't configured under one of the selectors tried. The only fully reliable way to know a domain's real DKIM selector is from an actual email's DKIM-Signature header - pass one via selectors if known (checked in addition to, not instead of, the built-in list). Microsoft 365 tenants in particular often publish DKIM as a CNAME to a `<selector>-<domain>._domainkey.<tenant>.onmicrosoft.com` target rather than a direct TXT record - confirmed live that a standard TXT-type lookup already follows this transparently, no special handling needed."
+fixed_args = []
+
+[[options]]
+name = "domain"
+description = "Authorized domain to check, without a URL scheme, e.g. 'example.com'."
+required = true
+flag = "--domain"
+
+[[options]]
+name = "selectors"
+description = "Comma-separated DKIM selector(s) to check in addition to the built-in common-provider list - use this if you already know the domain's real selector from an actual email's DKIM-Signature header."
+required = false
+flag = "--selectors"
+
+[[options]]
+name = "nameserver"
+description = "DNS server to use for all lookups."
+required = false
+flag = "--nameserver"
+
+[[options]]
+name = "timeout"
+description = "Per-lookup timeout in seconds."
+required = false
+flag = "--timeout"
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
