@@ -244,3 +244,35 @@
   --lib` (12/12) clean. This is the fourth real bug found in this one
   plugin through live testing alone - live re-verification pending
   redeploy.
+
+- Reviewed `jwt-analyzer` against every documented best practice in
+  `PLUGINS.md`, per a direct request, after its four rounds of live
+  bug-fixing above - confirmed it's clean against every existing
+  checklist item (no `[[secrets]]`/`[[assets]]` misuse, no unneeded
+  `run_as_root`, no privileged capabilities, correct `network = "none"`
+  claim, each fix a new changelog entry rather than a silent edit).
+  The one gap: the actual fix that worked (bake the tool's required
+  first-run state into the image at build time, *then* copy that
+  baked-in template into the writable tmpfs at every runtime start) is
+  a genuinely new variant of the read-only-filesystem lesson that the
+  existing two documented options (plain `ENV HOME=/tmp`, or mount a
+  tool's specific subpath) don't cover on their own - added as a new
+  checklist entry so a future plugin author facing the same "tool
+  needs a second invocation to do real work" shape doesn't have to
+  rediscover it live. Also notes, as part of that same new entry, a
+  real methodological lesson from this exact debugging: the first
+  three of those four bugs all "passed" when checked with a bare
+  `docker run` on the deployment host, because that runs as root with
+  a normal writable filesystem - no `--read-only`, no unprivileged UID
+  - masking the actual runtime failure entirely; only a real
+  `run_plugin`/`start_plugin` call through Slickchook itself exercises
+  the real policy. Also added a short clarifying sentence to the
+  existing `wpscan`/`shodan-*` "thin wrapper, real tool" paragraph
+  noting `jwt-analyzer` uses the same kind of wrapper for a different
+  reason (filesystem bootstrapping, not secret translation), so a
+  future reader doesn't assume every such wrapper exists only for
+  credential injection.
+  Documentation-only change, no build/test impact beyond confirming
+  nothing else broke.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
