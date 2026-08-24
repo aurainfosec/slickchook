@@ -1,0 +1,32 @@
+name = "sourcemap-scanner"
+container = "slickchook-plugin/sourcemap-scanner:local"
+description = "Discovers, fetches, reconstructs, and analyzes JavaScript source maps for one authorized target - target can be a page URL (its <script src> tags are checked for a source map each), a direct .js file URL (checked for its own sourceMappingURL comment, including an inline base64 data: URI), or a direct .map URL. A source map's `sources` array often reveals internal build/directory structure and, when a leaking `sourcesContent` is present (the un-minified original source embedded directly in the map - many build setups still ship this), the actual original source code itself - developer comments, internal endpoints, and hardcoded values a minified bundle alone would never show. Runs a lightweight built-in scan against whatever text/paths are found for common sensitive patterns (AWS/Google API keys, Slack tokens, JWTs, private key headers, generic credential-looking assignments, internal-looking hostnames/IPs, and absolute local filesystem paths that reveal a real developer username/machine) - written to /artifacts/findings.json and also printed directly, so this plugin is useful standalone. Every discovered original source path is attacker-influenced data (it comes from whatever the target serves) and is defused before being used as a filesystem path: any devtools-only pseudo-scheme prefix (webpack://, ng://, etc) is stripped, then every '..'/empty path segment is dropped and the result is re-joined as strictly relative, with a final containment check before any write - tested directly against a battery of path-traversal attempts before shipping, not assumed safe. Where sourcesContent was actually present, the real reconstructed source is written under this run's own /input staging directory (not just /artifacts) specifically so its run_id can be chained as input_run_id into a deeper secret-scanning plugin (e.g. one that scans a filesystem path for exposed secrets) for a more thorough pass than this plugin's own lightweight regex scan - that chaining is a separate, deliberate follow-up call, not done automatically by this plugin itself. Source maps are increasingly stripped from production builds by security-conscious teams, so results will vary a great deal by target."
+fixed_args = []
+
+[[options]]
+name = "target"
+description = "Authorized page URL, direct .js file URL, or direct .map file URL."
+required = true
+flag = "--target"
+
+[[options]]
+name = "max_scripts"
+description = "When target is a page URL, the maximum number of discovered <script src> tags to check for a source map. Ignored when target is a direct .js/.map URL."
+required = false
+flag = "--max-scripts"
+default = "20"
+
+[[options]]
+name = "timeout"
+description = "Per-request timeout in seconds for each fetch."
+required = false
+flag = "--timeout"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 32
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
+input_read_only = false
