@@ -186,3 +186,54 @@
   the real API before writing the manifest (see above); the container
   build itself (a multi-stage Go build) is still untested, since this
   sandbox has no docker access.
+
+- Live-verified `cve-poc-research` after install: a real search for
+  `product=nginx` with `kev=true`/`poc=true` (both passed as bare
+  boolean flags, matching this fleet's own convention) correctly
+  returned exactly the 2 CVEs matching both filters, exit code 0 -
+  confirming the bare-flag-AND-filtering behavior already confirmed
+  locally before merging also holds true through the actual deployed
+  container end-to-end.
+
+- Added a new `url-export` plugin, per a direct request for "a way to
+  create a list of identified domains and paths that can later be
+  imported into something like burpsuite or similar." Deliberately
+  scoped to export-only for this pass - the actual Burp-import half of
+  that request is being verified separately (real Burp Suite import
+  mechanics haven't been confirmed yet, so nothing about that is
+  written down as fact until they are).
+  Extracts, normalizes, and deduplicates URLs/domains/paths out of an
+  arbitrary blob of already-gathered recon text into one clean,
+  plain-text URL list - a self-contained stdlib-only Python tool,
+  deliberately not tied to any one source plugin's own output format
+  (every plugin in this fleet has a different shape: a plain URL list,
+  a JSON array, bare hostnames with no scheme, etc) - hardcoding
+  per-plugin parsing here would duplicate knowledge the calling AI
+  already has about each plugin's own declared output, so this is a
+  generic extract-anything-URL-shaped-and-clean-it-up pass instead.
+  `default_scheme` additionally treats bare hostname-only lines (e.g.
+  from a subdomain-enumeration-only source) as URLs.
+  `include_only_domain` filters the result to a given domain (or its
+  subdomains) - keeps the exported list properly scoped even if the
+  raw pasted-in text happened to contain an incidental out-of-scope
+  URL (e.g. a citation/reference link), matching this fleet's own
+  scope-discipline expectations for anything leaving a run.
+  Verified directly, not just read for correctness: tested the real
+  extraction/normalization logic against a deliberately messy sample
+  mixing a plain URL list, a JSON array, bare hostnames, trailing
+  comma/quote punctuation, mixed case, and an intentional duplicate -
+  confirmed correct deduplication, punctuation stripping, case-
+  insensitive scope matching, and correct rejection of a
+  non-domain-looking token; also ran the actual CLI end-to-end
+  (argument parsing through to both `/artifacts/urls.txt` and
+  `/artifacts/urls.json` output) with the `default_scheme` and
+  `include_only_domain` options combined, not just the extraction
+  function in isolation.
+  Added a short, plugin-agnostic mention to `SKILL.md`'s §5 describing
+  this export role generically as a separate, smaller step from the
+  full-archive collection process already documented there - checked
+  with `grep`, no plugin/tool names added.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. No docker access in this sandbox to build/run
+  the image locally; live verification through the actual MCP server
+  pending install.

@@ -400,3 +400,15 @@ input/output files a tool wrote:
    directory into a single zip archive and tell the user its path. Do not
    include anything outside the in-scope target list in the archive, even
    if it exists in this Slickchook instance's run history from other work.
+
+If the user wants discovered domains/paths in a form they can feed into
+another tool (e.g. Burp Suite), and a URL-extraction/export plugin is
+installed, that's a separate, smaller step from the full archive above:
+paste the relevant already-gathered content (from whichever runs actually
+matter — not everything ever collected) into it and it produces one
+clean, deduplicated plain-text URL list. Don't try to parse each source
+plugin's own output format yourself first — the export plugin is built to
+take it as-is, in whatever shape it's actually in. Check its own
+description for how to keep the result scoped to the named engagement
+(dropping anything out-of-scope that happened to appear in raw tool
+output) before handing it off.
