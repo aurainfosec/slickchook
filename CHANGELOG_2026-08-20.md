@@ -340,3 +340,17 @@
   one relies more heavily on source-level verification than most;
   container build and live verification are both still pending
   install.
+
+- Fixed `cloud-storage-enum`: install failed outright with `declared
+  asset /opt/fuzz.txt in slickchook-plugin/cloud-storage-enum:local
+  exists but is not readable by UID 65534` - caught by the install
+  step's own asset-permission check on the very first real build,
+  exactly the kind of thing this sandbox's lack of `pip`/docker access
+  couldn't catch beforehand. `COPY fuzz.txt /opt/fuzz.txt` preserved
+  whatever mode the file happened to have in the git checkout rather
+  than guaranteeing it world-readable; changed to `COPY --chmod=0644
+  fuzz.txt /opt/fuzz.txt`, matching the install error's own suggested
+  fix exactly.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live re-verification (a real install
+  succeeding, then an actual keyword check) pending redeploy.
