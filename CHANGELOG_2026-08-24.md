@@ -94,3 +94,52 @@
   --lib` (12/12) clean. No docker access in this sandbox to build/run
   the image locally; live verification through the actual MCP server
   pending install.
+
+- Added a new `jwt-analyzer` plugin - decodes a JWT's header/claims and
+  offline-tests it for common weaknesses, via `jwt_tool`
+  (github.com/ticarpi/jwt_tool). Closes the second of two remaining
+  gaps identified in this session's own "what's still missing"
+  review: several already-installed plugins (`dehashed`,
+  `sourcemap-scanner`, `trufflehog`) flag "found a JWT-looking string"
+  as a raw regex match, but nothing previously decoded or analyzed one.
+  Researched honestly rather than assuming this well-known name is
+  automatically the right, current choice: confirmed it is NOT
+  actively maintained in the strict sense (last real commit/release
+  v2.3.0, 2025-05-01, over a year stale) - but still the standard,
+  most-referenced tool for this with no better-maintained alternative
+  found. No PyPI package exists for it at all under either plausible
+  name - built from source, pinned to that exact release tag, since
+  there's nothing to check for staleness against a package index this
+  time (the tag itself already is the latest real release).
+  Confirmed directly from its own source, not assumed, that it is
+  fully offline/local when its `-t`/`-ju` flags are omitted - grepped
+  every network-call site in the file to confirm those two flags are
+  the *only* ones that trigger any request at all - neither is exposed
+  here, so `network = "none"` and this plugin can never reach a live
+  target regardless of input.
+  Also confirmed from source that its general interactive
+  tamper/claim-injection modes (`-T`/`-I`) are built entirely around
+  live `input()` prompts - dozens of them - which would simply fail in
+  this fleet's non-interactive containers; deliberately not exposed.
+  Its dedicated, non-interactive exploit/crack/sign flags (`-X`/`-C`/
+  `-S`) cover the same practical ground (alg:none, null signature,
+  psychic-signature CVE-2022-21449, blank-password, inline-JWKS
+  injection, key-confusion, HMAC dictionary cracking, re-signing) and
+  were confirmed clean of any interactive prompts by the same source
+  read, not assumed safe by association.
+  Uses jwt_tool's own real bundled wordlist of common/weak JWT signing
+  secrets by default for cracking, matching this fleet's established
+  preference for a tool's own real data over an invented list.
+  This plugin never submits a crafted token anywhere itself - it only
+  ever produces output (decoded claims, a crafted tampered token, a
+  cracked secret); using one against a live target is left as a
+  separate, deliberate follow-up call needing the same authorization
+  as any other active test.
+  Added a short, plugin-agnostic paragraph to `SKILL.md`'s Phase 4
+  describing this "found a JWT, now analyze it" follow-up generically,
+  alongside the existing dependency-manifest/CVE-lookup/source-map
+  follow-ups already there - checked with `grep`, no plugin/tool names
+  added.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. No docker access in this sandbox to build/run
+  the image locally; live verification pending install.
