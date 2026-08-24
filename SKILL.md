@@ -283,6 +283,16 @@ analysis is only a lightweight pass; if so, chain its `run_id` as
 `input_run_id` into a filesystem-based secret-scanning plugin for a
 deeper one, the same chaining pattern used above.
 
+If any installed plugin flags a JWT-looking string in its own output —
+several already do, as one kind of thing they scan for among others —
+and a JWT-decode/analysis plugin is installed, decode and analyze it
+rather than leaving it as an unexamined raw string match. Check that
+plugin's own description before using anything it produces (a crafted
+tampered token, a cracked signing secret) against a live target — that's
+a separate, deliberate step needing the same authorization as any other
+active test (§0), not something to do automatically just because the
+plugin could produce it.
+
 **Phase 5 — Opt-in, higher-sensitivity extras**
 A screenshot-capture plugin, if installed, only when visual review adds
 real value — immediately chain its `run_id` as `input_run_id` into a

@@ -1,0 +1,54 @@
+name = "jwt-analyzer"
+container = "slickchook-plugin/jwt-analyzer:local"
+description = "Decodes a JWT's header/claims and offline-tests it for common weaknesses, via jwt_tool (github.com/ticarpi/jwt_tool) - closes the loop where several other installed plugins already flag 'found a JWT-looking string' as a raw regex match but nothing decodes or analyzes it. Not actively maintained (last real commit/release v2.3.0, 2025-05-01) but still the standard, most-referenced tool for this with no better-maintained alternative found - built from source and pinned to that exact release tag, since no PyPI package exists for it at all. Fully offline/local by design: confirmed directly from its own source that only its -t/targeturl and -ju/jwksurl flags trigger any network call at all - neither is exposed here, so network is set to none and this plugin can never reach a live target regardless of input. This plugin only ever produces output (decoded claims, a crafted 'attack' token, a cracked secret) - it never submits anything to a live service itself. Only actually use a crafted token against a real target under the same authorization this fleet already requires for any live/active testing (see §0 in SKILL.md) - as a separate, deliberate follow-up call, not automatically. jwt is the raw token to analyze. exploit crafts a specific tampered variant locally: a = alg:none (strips the signature entirely - only valid against an unpatched implementation that trusts alg:none), n = null signature, p = 'psychic signature' (CVE-2022-21449, ECDSA), b = blank password accepted in signature, i = inject an inline JWKS into the header, k = key-confusion attack (signs using an RSA public key, given via pubkey, as if it were an HMAC secret - only valid against an implementation that doesn't distinguish key types). jwt_tool's JWKS-spoofing exploit (its own 's' choice) is deliberately not exposed here since it needs a live JWKS URL, out of this plugin's offline scope. crack dictionary-attacks a HS256/384/512-signed token's secret using jwt_tool's own real bundled wordlist of common/weak JWT signing secrets by default, or tests one specific candidate directly via password. sign re-signs a tampered token with a known or cracked HMAC secret (password) or a supplied RSA/EC/PSS private key (privkey) - choices hs256/hs384/hs512/rs256/rs384/rs512/es256/es384/es512/ps256/ps384/ps512. jwt_tool's general interactive tamper/claim-injection modes are deliberately not exposed - confirmed from source they're built entirely around live input() prompts, which would just fail in this fleet's non-interactive containers; the exploit/crack/sign flags above cover the same ground non-interactively."
+fixed_args = ["-b", "-d", "/opt/jwt_tool/jwt-common.txt"]
+
+[[arguments]]
+name = "jwt"
+description = "The raw JWT to decode/analyze."
+required = true
+position = 1
+
+[[options]]
+name = "exploit"
+description = "Craft a specific tampered token variant: a (alg:none), n (null signature), p (psychic signature, CVE-2022-21449), b (blank password accepted), i (inject inline JWKS), or k (key-confusion attack - needs pubkey)."
+required = false
+flag = "-X"
+
+[[options]]
+name = "pubkey"
+description = "Public key content (e.g. PEM text), for the k exploit choice."
+required = false
+flag = "-pk"
+
+[[options]]
+name = "crack"
+description = "Dictionary-attack this token's HMAC secret using jwt_tool's own bundled wordlist of common/weak JWT signing secrets - or use password to test one specific candidate instead."
+required = false
+flag = "-C"
+
+[[options]]
+name = "password"
+description = "A single specific secret to test - either as the one candidate for crack (instead of the bundled wordlist), or as the HMAC secret when re-signing with sign."
+required = false
+flag = "-p"
+
+[[options]]
+name = "sign"
+description = "Re-sign a tampered token: hs256/hs384/hs512 (needs password as the HMAC secret), rs256/rs384/rs512, es256/es384/es512, or ps256/ps384/ps512 (all three need privkey)."
+required = false
+flag = "-S"
+
+[[options]]
+name = "privkey"
+description = "Private key content (e.g. PEM text), for the rs*/es*/ps* sign choices."
+required = false
+flag = "-pr"
+
+[docker]
+network = "none"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
