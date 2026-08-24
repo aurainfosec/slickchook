@@ -322,3 +322,31 @@
   manifest under `plugins/`, including this one's 38 secrets, and
   passed). No docker access in this sandbox to build/run the image
   locally; live verification pending install.
+
+- Expanded `nuclei` to enable its own DAST/fuzz templates (SQLi, XSS,
+  SSRF, SSTI, command injection, and related classes) - a direct
+  follow-up to a request for tools that actively identify likely
+  high-impact vulnerability areas, not just known-signature/CVE
+  matching. Manifest-only change - no Dockerfile/image rebuild needed,
+  since the relevant templates (a real, separate ProjectDiscovery
+  `dast/` template set - confirmed real but modest: 2 sqli, 3 xss, 2
+  ssrf, 6 ssti, 3 cmdi templates, not a huge library) turned out to
+  already be baked into this plugin's existing template bundle, just
+  never enabled. Confirmed nuclei's own out-of-band interaction client
+  (interactsh, used for blind SSRF detection) is already on by default
+  (only a disable flag exists) before assuming a separate mechanism was
+  needed for that specific class.
+  New `dast` option is the master switch; `fuzz_aggression` (low/
+  medium/high) defaults to `low`, matching ordinary internet-facing
+  scan noise rather than either silent or maximally aggressive, so an
+  initial pass gives triage-level signal without excessive noise -
+  raise it deliberately once triage has identified where to spend
+  deeper effort. `fuzz_scope`/`fuzz_out_scope` keep fuzzing itself
+  properly bounded to the authorized target. Documented plainly that
+  `dast=true` crosses into the same attack-shaped-payload category
+  §0 already covers for `wafw00f` - default (non-dast) nuclei usage is
+  unaffected and remains passive signature-matching as before.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. No docker access in this sandbox; live
+  verification pending install (manifest-only, so a lightweight
+  reinstall, not a rebuild).
