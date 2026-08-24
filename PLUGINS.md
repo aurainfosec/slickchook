@@ -201,8 +201,13 @@ reimplemented logic of their own — their capabilities and limitations are
 whatever the real tool's are — but wrap it in a thin entrypoint script
 purely to translate an injected `[[secrets]]` value into the CLI flag or
 `init` step that tool expects (see "Wrapping an upstream tool that wants
-the secret as a CLI flag" above). Don't confuse this wrapper with a
-bespoke reimplementation; it adds nothing to what the real tool does.
+the secret as a CLI flag" above). `jwt-analyzer` wraps `jwt_tool` the same
+way — no reimplemented logic, real tool's own capabilities/limitations
+apply — but its thin entrypoint exists for a different reason: bootstrapping
+the tool's required first-run config/keys under this fleet's read-only
+root filesystem, not secret translation (see the read-only-filesystem
+lesson below). Don't confuse either kind of wrapper with a bespoke
+reimplementation; neither adds anything to what its real tool does.
 
 If a plugin isn't in the list above, treat its manifest `description` and
 underlying `container` image as accurately reflecting a real, independently
@@ -526,6 +531,33 @@ manifest, not just historical trivia:
   the prior one was wrong, not a silent edit to the original. The record
   of what was tried and why it didn't work is worth as much as the
   eventual right answer.
+- **A tool that needs a writable `$HOME` might also need specific,
+  non-empty state already there, not just an empty writable directory —
+  and testing that with a plain `docker run` can hide the real failure
+  mode.** `jwt_tool` writes a one-time config plus demo keypairs on its
+  very first invocation and then exits without ever touching the given
+  input at all — it expects a *second*, separate invocation to do real
+  work. The usual simple fix (`ENV HOME=/tmp` alone) doesn't help here:
+  since a plain tmpfs `/tmp` starts empty on every container start, every
+  single run looks like that same "first run" again, and the tool never
+  progresses past its own setup step. Baking that one-time setup into the
+  image at build time solves the "needs prior state" half — but this
+  fleet's containers always run with a read-only root filesystem at
+  runtime (not something a plugin can opt out of), which then blocks the
+  tool's own *ongoing* writes to that same directory on every subsequent
+  run (this one logs every invocation, not just the first) — a `chmod`
+  on a read-only-mounted path changes nothing, since the mount itself
+  refuses writes regardless of permission bits. The actual fix needed a
+  small wrapper entrypoint that copies the baked-in, read-only template
+  into the writable tmpfs on every run and points `$HOME` there (see
+  `jwt-analyzer`'s `entrypoint.sh`). Four real, distinct bugs shipped for
+  this one plugin before it worked, and the first three all "passed"
+  when checked with a bare `docker run` on the deployment host, because
+  that runs as root with a normal writable filesystem — no `--read-only`,
+  no unprivileged UID. Only a real `run_plugin`/`start_plugin` call
+  through Slickchook itself exercises the actual runtime policy; treat a
+  direct `docker run` smoke test as ruling out image-build problems only,
+  not as confirming the plugin works under this fleet's real constraints.
 
 Manifest validation rejects any capability beyond the two RUNNER.md
 documents (default none, or `NET_RAW` for tools that genuinely need raw
