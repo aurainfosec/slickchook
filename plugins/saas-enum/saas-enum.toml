@@ -1,0 +1,30 @@
+name = "saas-enum"
+container = "slickchook-plugin/saas-enum:local"
+description = "Checks whether an authorized organization has a live presence on common enterprise SaaS and e-commerce platforms via their predictable branded vanity-subdomain patterns (e.g. {org}.slack.com) - reveals what helpdesk/HR/CRM/collaboration/storefront systems an org actually runs, each a potential attack surface, phishing pretext, or info-disclosure point. Only checks platforms independently confirmed (by live-testing real customers' vanity URLs against an obviously-nonexistent one) to give an actually distinguishable exists-vs-not-found signal: zendesk, atlassian (Jira/Confluence), slack, pagerduty, monday, zoom, sharepoint, salesforce, gitbook, and shopify. Deliberately excludes several platforms researched but found unreliable or wrong rather than shipping a check that always says 'maybe': okta and freshdesk return the exact same response whether an org exists or not (no signal at all); bigcommerce and squarespace's assumed vanity-domain patterns didn't resolve for any real store tried (wrong or deprecated pattern - not included on a guess); the commonly-assumed patterns for greenhouse, lever, bamboohr, docusign, workday, and asana turned out wrong or unverifiable when actually tested live (e.g. greenhouse/lever use a shared-domain path, not a per-org subdomain; workday needs a numbered instance subdomain; asana has no per-org subdomain at all). gitbook's result is explicitly flagged with an attribution-risk note when found - gitbook allows any org name to be claimed by anyone, so a hit there doesn't confirm the claiming org is actually the one being investigated, unlike the other platforms checked here. org is the organization keyword as it would appear in a vanity URL - try common variants (with/without spaces, hyphens, abbreviations) as separate calls if the obvious one comes back all not_found, since a company's actual SaaS-platform slug doesn't always match its domain name exactly."
+fixed_args = []
+
+[[options]]
+name = "org"
+description = "Organization name/keyword to check across the selected SaaS platforms, e.g. 'acmecorp'."
+required = true
+flag = "--org"
+
+[[options]]
+name = "platforms"
+description = "Comma-separated subset of platforms to check: zendesk, atlassian, slack, pagerduty, monday, zoom, sharepoint, salesforce, gitbook, shopify. Omit to check all of them."
+required = false
+flag = "--platforms"
+
+[[options]]
+name = "timeout"
+description = "Per-platform request timeout in seconds."
+required = false
+flag = "--timeout"
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
