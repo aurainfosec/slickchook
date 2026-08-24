@@ -124,3 +124,65 @@
   pending install (though every check function was already directly
   exercised against real platforms and real organizations locally
   during development, not just read for correctness).
+
+- Added a new `cve-poc-research` plugin - looks up known CVEs, and
+  critically real pointers to known public PoC exploit code, for a
+  product/vendor discovered via a live version fingerprint (a service
+  banner, an HTTP tech-detection hit) rather than a dependency
+  manifest/lockfile, which the already-installed `osvscanner` plugin
+  covers instead. Prompted directly by external feedback naming this
+  exact gap: "version fingerprints piped to cve-poc-research;
+  slickchook's osvscanner covers dependency CVEs only".
+  Wraps `vulnx` (ProjectDiscovery, formerly `cvemap`) - confirmed the
+  real, current v2.0.2 CLI directly by downloading its actual Linux
+  release binary and testing it live (no docker access in this
+  sandbox), rather than trusting docs alone, per this week's standing
+  rule. This caught a real, meaningful mismatch: research had
+  suggested top-level flags like `--product`/`--poc`; the real v2.0.2
+  CLI is subcommand-based (`search`/`id`/`auth`/`filters`/...) with
+  those as flags to `vulnx search` specifically - and its official
+  Docker Hub image is stale (only `v1.0.0`/`latest`, last pushed
+  2025-07-27, predating this entire subcommand restructure) - built
+  from source pinned to the real `v2.0.2` git tag instead, confirming
+  the exact go module path (`github.com/projectdiscovery/vulnx/v2`)
+  directly from the repo's own `go.mod` rather than guessing.
+  Confirmed live, directly against the real API, both open questions
+  research had flagged as unresolved: (1) `pocs[].url` is real,
+  populated data (actual GitHub PoC-repo URLs), not just a boolean -
+  confirmed with a real result; (2) there is no version-level field
+  anywhere in the schema at all (checked the full JSON shape of a real
+  result, not just the documented filter list) - meaning this tool can
+  only filter to a product/vendor name, never an exact version, so a
+  result set is every CVE ever recorded against that product, not
+  narrowed to what a specific fingerprinted version actually has -
+  documented plainly in the manifest as a real, load-bearing
+  limitation rather than implied to work more precisely than it does.
+  Also confirmed live: works unauthenticated at 10 requests/minute
+  despite `vulnx auth --help`'s own text claiming authentication is
+  "required for all vulnx commands" (another docs-vs-real-behavior
+  mismatch caught by testing, not reading); `PDCP_API_KEY` is read
+  directly from the environment with no separate init/login step
+  needed (confirmed via the binary's own embedded strings); and a
+  boolean-style flag like `--poc`/`--kev` given as a bare flag (no
+  `=true`, matching this fleet's own convention of only emitting the
+  flag token when a boolean option is true) correctly AND-filters
+  results exactly as expected even positioned before other flags, so
+  no special wrapper was needed for that.
+  No `$HOME` dependency found either (tested the real binary with
+  `HOME` fully unset, not just set-to-invalid) - no wrapper Dockerfile
+  needed for that lesson this time.
+  Updated `SKILL.md`'s Phase 4 with a new, plugin-agnostic paragraph
+  describing this live-fingerprint-driven role generically, explicitly
+  distinguishing it from the existing dependency-manifest-driven
+  paragraph (which deliberately excludes a "generic web server
+  fingerprint" - exactly the case this new plugin covers) - including
+  the version-matching-limitation caveat generalized so future
+  sessions apply the same diligence even if this specific tool is ever
+  swapped out. Checked with `grep` - no plugin/tool names added.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (the `scan_plugins`-based tests exercise every
+  manifest under `plugins/`, including this one, and passed). The
+  underlying `vulnx` binary itself was extensively live-tested against
+  the real API before writing the manifest (see above); the container
+  build itself (a multi-stage Go build) is still untested, since this
+  sandbox has no docker access.
