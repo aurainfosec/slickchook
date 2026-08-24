@@ -49,3 +49,48 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. No docker access in this sandbox to build/run
   the image locally; live verification pending install.
+
+- Live-verified `waf-fingerprint` after install with two real targets:
+  `scanme.nmap.org` correctly returned `detected: false` (a bare test
+  page with no WAF); `www.cloudflare.com` correctly returned `detected:
+  true, firewall: Cloudflare`, with `trigger_url` showing the exact
+  attack-shaped payloads (XSS/SQLi/path-traversal) documented in the
+  manifest, sent as real URL parameters. Exit code 0 on both, clean
+  JSON output matching the design exactly.
+
+- Added a new `email-security-posture` plugin - checks an authorized
+  domain's SPF, DKIM, and DMARC DNS records for common
+  misconfigurations, purely passive DNS lookups only, no contact with
+  the domain's actual mail infrastructure. Closes one of two remaining
+  gaps identified in this session's own "what's still missing"
+  review.
+  Verified real record formats directly via live DNS-over-HTTPS
+  queries against real domains (google.com/microsoft.com/github.com)
+  before writing detection logic, rather than assuming textbook
+  formats: confirmed real SPF records (including one split across
+  multiple concatenated TXT strings due to the 255-byte string limit -
+  `b"".join(rdata.strings)` handles this correctly), real DMARC
+  records with p=/pct=/rua=/ruf=/fo= fields, and a real, important
+  DKIM nuance - Microsoft 365 tenants often publish DKIM as a CNAME to
+  a `<selector>-<domain>._domainkey.<tenant>.onmicrosoft.com` target
+  rather than a direct TXT record, confirmed live that a standard
+  TXT-type resolution already follows this transparently with no
+  special handling needed.
+  DKIM selectors have no canonical discoverable location in DNS at
+  all - checks a list of selectors publicly documented as defaults by
+  widely-used providers (Google Workspace, Microsoft 365, SendGrid,
+  Mailchimp/Mandrill, Constant Contact, ProtonMail) plus generic
+  self-hosted conventions, honestly documented as a best-effort guess
+  rather than an exhaustive/authoritative check - a `selectors` option
+  lets a caller add a real known selector from an actual email's
+  DKIM-Signature header.
+  Directly exercised the SPF/DMARC analysis logic (not just read for
+  correctness) against the real record text captured from those live
+  DNS queries, plus a battery of edge cases: a bare `all` mechanism
+  (implicit `+`, distinct from an explicit `+all`), multiple SPF
+  records, a missing `all` mechanism entirely, and a DMARC record with
+  `pct<100` and no `rua=` - all produced the expected findings.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. No docker access in this sandbox to build/run
+  the image locally; live verification through the actual MCP server
+  pending install.
