@@ -1,0 +1,96 @@
+name = "dalfox"
+container = "slickchook-plugin/dalfox:local"
+description = "Actively tests one authorized target for XSS, via dalfox (github.com/hahwul/dalfox, actively maintained - real commits the day before this was written, a complete Rust rewrite as of v3.2.1, pinned to the real official Docker Hub image published the same day as that release). This sends genuinely attack-shaped payloads as part of detection - the same §0 category already covered for wafw00f, nuclei's dast mode, and sqlmap - only run this against a target whose engagement scope covers this kind of active testing. dry_run plans the scan (which parameters/injection points it would test) without sending a single payload at all - a genuinely zero-risk way to see where dalfox would focus before actually running it, worth using first on an unfamiliar or sensitive target. deep_scan (off by default, matching a typical scan's noise level rather than an exhaustive one) keeps testing a parameter after the first finding instead of moving on - turn it on deliberately once triage has identified where to spend deeper effort. waf_bypass (auto by default) and the adaptive jitter/backoff dalfox applies on WAF-blocked request clusters are what keep this closer to ordinary scanner traffic than a naive flood - leave these alone unless the engagement specifically calls for a different posture. Detection-only by design: dalfox has no exploitation features beyond payload-injection-and-response-analysis (no headless browser, no auto-submitted forms) - sxss/sxss_url add a stored-XSS retrieval check (fetches a separate URL to see if an injected payload persisted), still just detection, not exploitation. Important real quirk to know before treating a run as failed: dalfox's own exit codes are 0 (no findings), 1 (findings reported - a successful, informative run, not a failure), and 2 (a real error) - a `status: failed` result with real findings in its output is not the same thing as the plugin actually failing. Results are always written as JSON to /artifacts/results.json."
+fixed_args = ["scan", "--format", "json", "--output", "/artifacts/results.json"]
+
+[[arguments]]
+name = "target"
+description = "Authorized URL to test."
+required = true
+position = 1
+
+[[options]]
+name = "dry_run"
+description = "Plan the scan (which parameters/injection points would be tested) without sending a single payload - zero-risk, worth using first on an unfamiliar or sensitive target."
+required = false
+flag = "--dry-run"
+
+[[options]]
+name = "deep_scan"
+description = "Keep testing a parameter after the first finding instead of moving on. Off by default, matching ordinary scan noise - turn on deliberately for a deeper pass."
+required = false
+flag = "--deep-scan"
+
+[[options]]
+name = "only_discovery"
+description = "Only discover parameters/injection points, without testing them for XSS at all."
+required = false
+flag = "--only-discovery"
+
+[[options]]
+name = "skip_discovery"
+description = "Skip parameter discovery and test only what's directly given."
+required = false
+flag = "--skip-discovery"
+
+[[options]]
+name = "workers"
+description = "Concurrent workers. Omit for dalfox's own default (50)."
+required = false
+flag = "--workers"
+
+[[options]]
+name = "rate_limit"
+description = "Maximum requests per second across all workers. Omit for dalfox's own default (unlimited, though still shaped by its own WAF-adaptive backoff)."
+required = false
+flag = "--rate-limit"
+
+[[options]]
+name = "delay"
+description = "Per-worker delay between requests, in milliseconds. Omit for dalfox's own default (0)."
+required = false
+flag = "--delay"
+
+[[options]]
+name = "timeout"
+description = "Per-request timeout in seconds. Omit for dalfox's own default (10)."
+required = false
+flag = "--timeout"
+
+[[options]]
+name = "retries"
+description = "Retries for a failed request. Omit for dalfox's own default (0)."
+required = false
+flag = "--retries"
+
+[[options]]
+name = "max_payloads_per_param"
+description = "Cap on payload variants tried per parameter. Omit for dalfox's own default (0, meaning its built-in 3000 cap unless deep_scan is set)."
+required = false
+flag = "--max-payloads-per-param"
+
+[[options]]
+name = "waf_bypass"
+description = "auto (default), force, or off - controls dalfox's own WAF-adaptive request shaping. Leave at auto unless the engagement specifically calls for a different posture."
+required = false
+flag = "--waf-bypass"
+
+[[options]]
+name = "sxss"
+description = "Also check for stored XSS by fetching a separate URL afterward to see if an injected payload persisted - needs sxss_url."
+required = false
+flag = "--sxss"
+
+[[options]]
+name = "sxss_url"
+description = "URL to check for a persisted payload, for the sxss stored-XSS check."
+required = false
+flag = "--sxss-url"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 900
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]

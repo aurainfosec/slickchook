@@ -350,3 +350,69 @@
   --lib` (12/12) clean. No docker access in this sandbox; live
   verification pending install (manifest-only, so a lightweight
   reinstall, not a rebuild).
+
+- Added `sqlmap`, `dalfox`, and `commix` plugins - active detection for
+  SQL injection, XSS, and OS command injection respectively - completing
+  the classic high-impact bug-class set requested alongside the nuclei
+  DAST expansion above (SSTI/SSRF are covered by that expansion; command
+  injection also gets a lightweight nuclei signal there, `commix` gives
+  it a dedicated, much deeper one). Per explicit direction: the AI
+  controls intrusion depth per engagement, artifacts stay retrievable
+  per this fleet's usual design, and each tool's *default* settings
+  should approximate the noise level a typical internet-facing target
+  already sees from ordinary scanners - enough signal to know where a
+  pentester should spend time, not an exhaustive run by default.
+  All three confirmed real, current, and (with one exception) still
+  actively maintained before building anything: `sqlmap` (real commits
+  the day before this was written, real PyPI package matching the
+  project exactly - `1.10.8` on both, no stale-index problem this time),
+  `dalfox` (real commits the day before, completely rewritten in Rust as
+  of `v3.2.1`, a fresh official Docker image pushed the same day as that
+  release), `commix` (real commits the same day, recent commit messages
+  describing genuine reliability improvements, not just churn - the
+  actual exception is its PyPI package, drastically stale at `0.1`,
+  built from source instead).
+  Two real bugs caught by reading `dalfox`'s actual upstream Dockerfile
+  directly before trusting the official image as-is: it uses `CMD`, not
+  `ENTRYPOINT` (this fleet's declared options/arguments become the
+  container command, which would have replaced a bare `CMD` entirely
+  rather than appending to it), and it `chown`s its own binary to a
+  named non-root user this fleet's always-overridden UID 65534 has no
+  particular relationship to - fixed with an explicit `ENTRYPOINT` and a
+  `chmod a+rX` before either was ever run for real, not discovered live.
+  Each tool's own real intrusiveness/noise dials were confirmed directly
+  from source, not assumed from memory or README text - and in two
+  cases this directly changed the design: `commix`'s `--level` turned
+  out to control *which input vectors get tested* (URL/POST → +cookies
+  → +headers), not payload aggressiveness as the name suggests;
+  `sqlmap`'s `--risk` level 3 specifically adds OR-based payloads that
+  can alter what a live query actually returns, a genuinely different
+  kind of risk than "more requests," not just a bigger version of level
+  1's behavior. Both are documented plainly rather than described by
+  their surface-level names alone. All three default to their
+  respective quietest built-in posture (`sqlmap`: `level=1 risk=1
+  technique=BEUTQ`, deliberately excluding stacked-queries `S` since it
+  can execute arbitrary additional SQL rather than only detect;
+  `dalfox`: `deep_scan` off, matching ordinary scan noise, with a
+  `dry_run` option that plans a scan without sending a single payload at
+  all; `commix`: its own real defaults, `skip_waf` left off).
+  All three are detection-only by design: each real tool's own separate,
+  explicit exploitation-tier features (`sqlmap`'s `--dump`/`--sql-shell`/
+  `--os-shell`, `commix`'s `--os-cmd`/`--file-write`/`--file-read`) are
+  deliberately not exposed - finding and reporting a likely issue is
+  each plugin's job, not exploiting one. Documented a real, confirmed
+  `dalfox` exit-code quirk before it could be mistaken for a bug: `1`
+  means findings were reported (a successful, informative run), not a
+  failure - only `2` is a real error.
+  Added a new, plugin-agnostic paragraph to `SKILL.md`'s Phase 4 tying
+  this whole capability area together: default to a plugin's own
+  quietest setting first, escalate deliberately once triage has
+  identified a specific area worth deeper attention, and treat detection
+  results as a human-directed decision point rather than something to
+  escalate into exploitation on its own initiative. Checked with `grep`
+  - no plugin/tool names added.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean (the `scan_plugins`-based tests exercise every
+  manifest under `plugins/`, including all three new ones, and passed).
+  No docker access in this sandbox to build/run any of these images
+  locally; live verification pending install for all three.

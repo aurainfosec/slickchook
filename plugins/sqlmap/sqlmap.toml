@@ -1,0 +1,51 @@
+name = "sqlmap"
+container = "slickchook-plugin/sqlmap:local"
+description = "Actively tests one authorized URL for SQL injection, via sqlmap (github.com/sqlmapproject/sqlmap, actively maintained - real commits the day this was written, pinned to the real current release 1.10.8, matching its own current PyPI package exactly). This sends genuinely attack-shaped payloads as part of detection - the same §0 category already covered for wafw00f and nuclei's dast mode - only run this against a target whose engagement scope covers this kind of active testing. Detection-only by design: sqlmap's real data-extraction and OS-command-execution features (--dump/--dump-all/--sql-shell/--os-shell) are separate, explicit flags in the real tool and are deliberately not exposed here - finding and reporting an injection point is this plugin's job, not exploiting one. level (1-5, default 1) controls how thoroughly injection points and payloads get tried - a detection-thoroughness dial, not inherently disruptive on its own. risk (1-3, default 1) is a genuinely different kind of dial: risk 3 adds OR-based payloads that can match every row in a WHERE clause, a real behavioral difference on a live application, not just \"more requests\" - keep this at the default unless the engagement specifically calls for it. technique selects which of sqlmap's six real injection-technique classes to attempt (B=boolean-blind, E=error-based, U=UNION-query, S=stacked-queries, T=time-based, Q=inline-query) - defaults to BEUTQ, deliberately excluding S: stacked queries let arbitrary additional SQL statements execute (INSERT/UPDATE/DELETE/DDL), a real data-modification risk the other five techniques don't carry, since they're read-only detection methods - add S only when the engagement specifically calls for testing it. Together, level=1/risk=1/technique=BEUTQ approximates the noise/impact profile of a typical internet-facing scanner's baseline pass - enough signal to know where a real injection point likely exists, without the disruption risk of a maximal run; raise any of these deliberately for a deeper pass once initial triage has identified where to focus. Results (including sqlmap's own session data) are always written under /artifacts via --output-dir."
+fixed_args = ["--batch", "--output-dir", "/artifacts"]
+
+[[options]]
+name = "target"
+description = "Authorized URL to test, including any query string/parameters to test."
+required = true
+flag = "-u"
+
+[[options]]
+name = "level"
+description = "How thoroughly injection points and payloads get tried, 1-5. Defaults to 1, matching ordinary internet-facing scan noise - raise deliberately for a deeper pass."
+required = false
+flag = "--level"
+default = "1"
+
+[[options]]
+name = "risk"
+description = "1-3. Risk 3 adds OR-based payloads that can match every row in a WHERE clause - a real behavioral difference on a live application, not just more testing. Defaults to 1; raise only when the engagement specifically calls for it."
+required = false
+flag = "--risk"
+default = "1"
+
+[[options]]
+name = "technique"
+description = "Which injection-technique classes to attempt: B=boolean-blind, E=error-based, U=UNION-query, S=stacked-queries, T=time-based, Q=inline-query. Defaults to BEUTQ, deliberately excluding S (stacked queries can execute arbitrary additional SQL - INSERT/UPDATE/DELETE/DDL - a real disruption risk the other five don't carry). Add S only when the engagement specifically calls for testing it."
+required = false
+flag = "--technique"
+default = "BEUTQ"
+
+[[options]]
+name = "threads"
+description = "Concurrent HTTP requests. Omit for sqlmap's own default (1, already conservative)."
+required = false
+flag = "--threads"
+
+[[options]]
+name = "flush_session"
+description = "Clear any cached session/fingerprint data for this target before running, rather than reusing it."
+required = false
+flag = "--flush-session"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 1800
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

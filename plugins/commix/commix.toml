@@ -1,0 +1,73 @@
+name = "commix"
+container = "slickchook-plugin/commix:local"
+description = "Actively tests one authorized URL for OS command injection, via commix (github.com/commixproject/commix, genuinely actively maintained - real commits the day this was written, recent commit messages describe real reliability improvements, not just churn - pinned to the real current release v4.1). This sends genuinely attack-shaped payloads as part of detection - the same §0 category already covered for wafw00f, nuclei's dast mode, sqlmap, and dalfox - only run this against a target whose engagement scope covers this kind of active testing. level (1-3, default 1) is a real, easy-to-assume-wrong dial - confirmed directly from source, it controls which input vectors get tested, not payload aggressiveness: 1 tests URL/POST parameters only, 2 additionally tests cookies, 3 additionally tests other HTTP headers. technique selects which detection method(s) to use (c=classic/results-based, e=dynamic code evaluation, t=time-based/blind, f=file-based) - all four are still just detection methods for the same underlying vulnerability, none of them execute a real payload on their own, so commix's own default (all of them) is left as-is here rather than narrowed. delay/time_sec are the real noise-tuning knobs - delay is a flat pause between requests, time_sec is how long a time-based technique's own probe asks the target to sleep for; keep both close to commix's own defaults (0 and 1 second respectively) for ordinary scan noise. skip_waf skips commix's own default heuristic WAF/IPS detection step entirely - leave this off (commix's own default) unless the engagement specifically calls for skipping it. Detection-only by design: commix cleanly separates base detection from actual OS command execution/file access at the flag level (confirmed from source) - --os-cmd/--file-read/--file-write/--file-upload are real, distinct, separately-invoked features and are deliberately not exposed here; finding and reporting an injection point is this plugin's job, not exploiting one. Unlike several other tools in this fleet, commix has no $HOME-relative config/session dependency at all (confirmed from source) - its own output/session data is always redirected under /artifacts via --output-dir here."
+fixed_args = ["--batch", "--output-dir", "/artifacts"]
+
+[[options]]
+name = "target"
+description = "Authorized URL to test, including any query string/parameters to test."
+required = true
+flag = "-u"
+
+[[options]]
+name = "level"
+description = "Which input vectors get tested, 1-3 - not an aggressiveness dial. 1 = URL/POST parameters only (default). 2 = also cookies. 3 = also other HTTP headers."
+required = false
+flag = "--level"
+default = "1"
+
+[[options]]
+name = "technique"
+description = "Which detection method(s) to use: c=classic/results-based, e=dynamic code evaluation, t=time-based/blind, f=file-based. Omit for commix's own default (all four)."
+required = false
+flag = "--technique"
+
+[[options]]
+name = "skip_technique"
+description = "Detection method(s) to skip, using the same letter codes as technique."
+required = false
+flag = "--skip-technique"
+
+[[options]]
+name = "delay"
+description = "Seconds to pause between each HTTP request. Omit for commix's own default (0)."
+required = false
+flag = "--delay"
+
+[[options]]
+name = "time_sec"
+description = "Seconds a time-based probe asks the target to sleep for. Omit for commix's own default (1)."
+required = false
+flag = "--time-sec"
+
+[[options]]
+name = "timeout"
+description = "Per-request timeout in seconds."
+required = false
+flag = "--timeout"
+
+[[options]]
+name = "retries"
+description = "Retries for a failed request."
+required = false
+flag = "--retries"
+
+[[options]]
+name = "flush_session"
+description = "Clear any cached session/fingerprint data for this target before running, rather than reusing it."
+required = false
+flag = "--flush-session"
+
+[[options]]
+name = "skip_waf"
+description = "Skip commix's own default heuristic WAF/IPS detection step. Leave off (the default) unless the engagement specifically calls for skipping it."
+required = false
+flag = "--skip-waf"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 1800
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]

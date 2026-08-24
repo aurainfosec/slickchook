@@ -293,6 +293,28 @@ a separate, deliberate step needing the same authorization as any other
 active test (§0), not something to do automatically just because the
 plugin could produce it.
 
+Several installed plugins can actively fuzz for the classic high-impact
+bug classes (SQL injection, XSS, SSRF, command injection, and related)
+rather than only matching known signatures — check `list_plugins` for
+these. Every one of them sends genuinely attack-shaped payloads as part
+of detection, the same §0 category already covered above, so only use
+one where the engagement's scope already covers this kind of active
+testing. Default to whatever a given plugin's own description calls its
+quietest/least-aggressive setting first — this is meant to approximate
+the noise level a target already routinely sees from ordinary
+internet-facing scanners, giving enough signal to know where a pentester
+should actually spend manual time, not to exhaustively confirm every
+possible finding automatically in one pass. Only dial up depth or
+aggressiveness deliberately, once an initial pass has actually identified
+a specific parameter or endpoint worth a deeper look — don't start at
+maximum depth against every discovered surface just because a plugin
+supports it. What these plugins expose is detection — finding and
+reporting a likely issue — not their underlying tool's own separate
+exploitation-tier features (extracting real data, obtaining a real
+shell); those are deliberately left unwired. If a genuine finding needs
+confirming beyond what detection alone shows, treat that as a separate,
+human-directed decision, not something to escalate into on your own.
+
 **Phase 5 — Opt-in, higher-sensitivity extras**
 A screenshot-capture plugin, if installed, only when visual review adds
 real value — immediately chain its `run_id` as `input_run_id` into a
