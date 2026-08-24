@@ -1,0 +1,42 @@
+name = "waf-fingerprint"
+container = "slickchook-plugin/waf-fingerprint:local"
+description = "Identifies which WAF/CDN (if any) fronts an authorized target, via wafw00f (github.com/EnableSecurity/wafw00f, actively maintained, last pushed 2026-04-19, 173 bundled signatures) - pairs directly with historic-IP-based WAF-bypass testing (e.g. via a plugin that surfaces a domain's past DNS resolutions): knowing which specific WAF/CDN is in front of a target tells you what you're actually trying to bypass. Read this before running it: this is NOT a passive fingerprint. Confirmed directly from its own source - alongside passive checks (comparing responses with/without a User-Agent header), it also sends genuinely attack-shaped payloads as request parameters to see how the target reacts: an XSS payload (`<script>alert(\"XSS\");</script>`), a time-based blind SQLi payload (`UNION SELECT ALL FROM information_schema AND \" or SLEEP(5) or \"`), a path-traversal LFI payload (`../../etc/passwd`), an XXE payload referencing `/etc/shadow`, and an OS-command-injection-looking payload (`/bin/cat /etc/passwd; ping 127.0.0.1; curl google.com`). Nothing is actually exploited, but these will very plausibly appear in the target's own WAF/SIEM logs as attempted attacks - only run this against a target whose engagement scope already covers this kind of active testing, not just passive observation (see §0 in SKILL.md). Honest effectiveness assessment, not just popularity: this is a solid, actively-improved tool, not an infallible one - its own commit history shows a real, ongoing pattern of detection gaps being found and fixed (a FortiGuard false-negative fix as recently as January 2026, a Google Cloud Armor detection gap in 2024, historical misses on StackPath/Siteground/F5 BIG-IP ASM) - expect it to occasionally miss a newer, reconfigured, or more transparent/silent-mode WAF, and don't treat a clean 'no WAF detected' result as certain proof none exists. The already-installed template-based vulnerability scanner also has its own lighter-weight WAF-detection template (a single request, one payload type) - this tool's broader signature database and multiple payload types across different attack categories (a WAF may only react to some categories) make it a genuinely complementary, more thorough pass, not a redundant one. findall continues checking every known signature instead of stopping at the first match - useful for layered defenses (e.g. a CDN in front of a separate WAF)."
+fixed_args = ["--format", "json", "--output", "-"]
+
+[[arguments]]
+name = "target"
+description = "Authorized URL to test, e.g. https://example.com/"
+required = true
+position = 1
+
+[[options]]
+name = "findall"
+description = "Don't stop at the first matching WAF signature - keep checking all of them. Useful for layered setups (e.g. a CDN in front of a separate WAF)."
+required = false
+flag = "-a"
+
+[[options]]
+name = "noredirect"
+description = "Don't follow HTTP redirects."
+required = false
+flag = "-r"
+
+[[options]]
+name = "test_waf"
+description = "Test for one specific named WAF only, instead of the full signature database. Use the exact name wafw00f itself uses (e.g. 'Cloudflare (Cloudflare Inc.)')."
+required = false
+flag = "-t"
+
+[[options]]
+name = "timeout"
+description = "Per-request timeout in seconds. Omit for wafw00f's own default (7)."
+required = false
+flag = "-T"
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
