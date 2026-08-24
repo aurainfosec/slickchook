@@ -1,6 +1,6 @@
 name = "nuclei"
 container = "slickchook-plugin/nuclei:local"
-description = "Runs ProjectDiscovery Nuclei against one authorized target using a plugin-owned full template bundle. Results are emitted as JSONL."
+description = "Runs ProjectDiscovery Nuclei against one authorized target using a plugin-owned full template bundle. Results are emitted as JSONL. By default this only matches known signatures/CVEs/misconfigurations (nuclei's normal mode) - it does not send novel attack payloads of its own. Setting dast=true is a different, meaningfully more active mode: it enables nuclei's own DAST/fuzz templates (confirmed baked into this image's bundle already, under the dast/ directory - a modest, real set: 2 sqli, 3 xss, 2 ssrf, 6 ssti, 3 cmdi, plus lfi/rfi/xxe/injection/redirect/crlf/csti templates, not a huge library, don't oversell coverage), which actively fuzz discovered parameters with crafted payloads for exactly the classic high-impact bug classes (SQLi, XSS, SSRF, SSTI, command injection, and related). This is the same kind of thing §0 in SKILL.md already covers for wafw00f - a detection technique that sends deliberately attack-shaped payloads, not a passive fingerprint - only enable dast for a target whose engagement scope already covers this kind of active testing. SSRF detection in particular relies on nuclei's own built-in out-of-band (OOB) interaction client (interactsh), which is enabled automatically (confirmed from source - only a disable flag exists) and defaults to ProjectDiscovery's own free public interactsh server, unless interactsh_server/interactsh_token point it at a self-hosted one. fuzz_aggression controls how many payload variants get tried per parameter - defaults to low (the smallest, quietest set) matching ordinary internet-facing scan noise; raise deliberately for a deeper pass once initial triage has identified where to focus, not reflexively. fuzz_scope/fuzz_out_scope (regex allow/deny lists) keep fuzzing itself properly bounded to the authorized target even when nuclei follows links/params outside the exact given URL - set fuzz_scope to the authorized domain whenever dast is enabled against anything that could plausibly redirect or link elsewhere."
 fixed_args = ["-silent", "-disable-update-check", "-no-stdin", "-jsonl", "-t", "/opt/nuclei-templates"]
 
 [[options]]
@@ -44,6 +44,61 @@ name = "retries"
 description = "Retries for a failed request. Default 1."
 required = false
 flag = "-retries"
+
+[[options]]
+name = "dast"
+description = "Enable nuclei's own DAST/fuzz templates - active fuzzing for SQLi, XSS, SSRF, SSTI, command injection, and related classes, not just known-signature matching. See this plugin's own description for the real scope/limitations before relying on it, and §0 in SKILL.md - this is an active-attack-payload technique needing the same authorization awareness as any other."
+required = false
+flag = "-dast"
+
+[[options]]
+name = "fuzz_aggression"
+description = "How many payload variants to try per parameter when dast is enabled: low, medium, or high. Defaults to low, matching ordinary internet-facing scan noise - raise deliberately for a deeper pass once initial triage has identified where to focus."
+required = false
+flag = "-fuzz-aggression"
+default = "low"
+
+[[options]]
+name = "fuzz_scope"
+description = "Regex allow-list confining what dast fuzzing actually touches - set this to the authorized domain whenever dast is enabled against anything that could plausibly redirect or link elsewhere."
+required = false
+flag = "-fuzz-scope"
+
+[[options]]
+name = "fuzz_out_scope"
+description = "Regex deny-list excluding specific paths/parameters from dast fuzzing."
+required = false
+flag = "-fuzz-out-scope"
+
+[[options]]
+name = "fuzz_param_frequency"
+description = "Skip a parameter from further dast fuzzing after this many attempts across templates, to avoid repeatedly hammering an uninteresting one. Omit for nuclei's own default (10)."
+required = false
+flag = "-fuzz-param-frequency"
+
+[[options]]
+name = "interactsh_server"
+description = "Self-hosted interactsh server URL for out-of-band (OOB) interaction checks (e.g. blind SSRF detection), instead of ProjectDiscovery's own free public default."
+required = false
+flag = "-interactsh-server"
+
+[[options]]
+name = "interactsh_token"
+description = "Auth token for a self-hosted interactsh_server, if it requires one."
+required = false
+flag = "-interactsh-token"
+
+[[options]]
+name = "bulk_size"
+description = "Maximum hosts scanned in parallel. Default 25; lower for a quieter footprint."
+required = false
+flag = "-bulk-size"
+
+[[options]]
+name = "max_host_error"
+description = "Skip a host after this many consecutive errors against it. Default 30."
+required = false
+flag = "-max-host-error"
 
 [docker]
 network = "bridge"
