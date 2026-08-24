@@ -188,3 +188,33 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live re-verification (a real decode actually
   producing output, plus an exploit/crack path) pending redeploy.
+
+- Fixed a real, blocking `jwt-analyzer` bug found on the redeploy after
+  the `-b` fix above: still zero decoded output, this time stopping
+  right after "Configuration file built - review contents of
+  jwtconf.ini..." with no error anywhere. Traced this to a genuine
+  first-run quirk in jwt_tool itself: on its very first invocation
+  (no `jwtconf.ini` present yet under `~/.jwt_tool`), it writes a
+  default config plus demo RSA/EC keypairs and then unconditionally
+  `exit(1)`s *before ever touching the given JWT at all* - it expects
+  a *second*, separate invocation to actually do anything. Since every
+  plugin run in this fleet is a fresh, ephemeral container, every
+  single call was hitting this exact "first run" path and none could
+  ever reach the real decode logic - a fundamentally blocking bug, not
+  a cosmetic one.
+  Fixed by pointing `HOME` at a directory baked into the image itself
+  (`/opt/jwt_tool_home`) instead of `/tmp` (a tmpfs mount that starts
+  empty on every container run, so anything written there at build
+  time would never survive to runtime regardless), and triggering the
+  one-time config setup once, at image build time, so every real
+  invocation afterward finds an existing config and skips straight
+  past it - confirmed from source that the version-matching config
+  reload path (same script, same pinned commit both writing and later
+  reading it) has no drift risk here. `chmod -R 0777` afterward, since
+  jwt_tool still appends to a log file and writes a marker file under
+  that same directory on every run regardless.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live re-verification pending redeploy - this
+  is the third real bug found in this one plugin through live testing
+  alone, none of which were visible from reading the tool's own
+  `--help` text or its README.
