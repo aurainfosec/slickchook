@@ -34,3 +34,19 @@
   script needing only its own bundled code and the standard library.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live re-verification pending redeploy.
+
+- Fixed a second real `commix` bug, found immediately after redeploying
+  the fix above: the crash was gone (exit code 0), but output still
+  stopped right after "Using 'stdin' for parsing targets list." -
+  never actually testing the given URL at all. Traced to a real,
+  confirmed quirk in commix's own source: it checks whether stdin is a
+  TTY, and since this fleet's containers always run with a non-TTY
+  stdin, it silently falls into reading targets from stdin instead of
+  respecting `-u`, unless `--ignore-stdin` is also passed - regardless
+  of whether a URL was already given. Added `--ignore-stdin` to
+  `fixed_args`, so `-u` is actually honored every time. Second real bug
+  found in this one plugin through live testing alone, neither visible
+  from reading `setup.py`/`menu.py` in isolation - both needed an
+  actual run to surface.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live re-verification pending redeploy.
