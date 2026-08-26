@@ -50,3 +50,32 @@
   actual run to surface.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean. Live re-verification pending redeploy.
+
+- Live-verified `commix` after the `--ignore-stdin` fix: a real run
+  against `scanme.nmap.org` correctly worked through all five real
+  detection techniques (classic, dynamic code evaluation, time-based,
+  file-based, tempfile-based), correctly auto-answered every
+  interactive prompt via `--batch` (including a "writable directory"
+  prompt and cleanly falling back from `/var/www/html/` to `/tmp/` on
+  a permission denial), and correctly reported the expected negative
+  result ("All tested parameters do not appear to be injectable").
+  Session/log artifacts landed correctly under `/artifacts`. Exit code
+  0. This closes out live verification for the whole active-detection
+  batch (`nuclei` dast, `sqlmap`, `dalfox`, `commix`).
+
+- Clarified a real operational question raised directly: whether
+  `nuclei`'s OOB-based SSRF detection (`interactsh`) actually works
+  when this host is deployed behind NAT with no direct inbound internet
+  reachability. Verified rather than assumed either way: confirmed from
+  `interactsh`'s own docs that its client only ever polls the public
+  relay outbound (a plain poll-interval loop, no inbound listener of
+  any kind), and confirmed live that this host can reach the public
+  relay (oast.pro/oast.live/oast.me) outbound - a vulnerable target's
+  own callback also only ever reaches that same public relay outbound,
+  never this host directly, so NAT genuinely doesn't break the default
+  behavior. Documented that this NAT-safety only holds for the default
+  public relay - a self-hosted `interactsh_server` genuinely would need
+  direct inbound reachability, unlike the default. Manifest-only
+  change.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
