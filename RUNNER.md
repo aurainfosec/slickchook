@@ -55,12 +55,23 @@ sudo --preserve-env=CADDY_HOSTNAME,CADDY_LISTEN_PORT,CADDY_CERT_DAYS \
 Plugin packages have their own installation lifecycle and are not copied or
 updated by either installation method. See `PLUGINS.md`.
 
-## Alternative: `scripts/install-ubuntu.sh`
+## Development use: `scripts/install-ubuntu.sh`
 
-Where building a redistributable `.deb` isn't wanted (no `dpkg-deb`
-available, or a one-shot deploy without producing a package artifact),
-run the included installer script directly from the repository root
-instead:
+**For a new installation, use the `.deb` package above — it's the
+recommended path, not this script.** This script exists for
+development iteration on a host you already control: rebuilding and
+reinstalling core binaries quickly while working on Slickchook itself
+(or on core changes needed alongside plugin work — a new manifest
+field, a runner behavior change) without repackaging a `.deb` for
+every change. It is not a recommended alternative production
+deployment method — reach for it when you're iterating on this
+repository's own code on a dev/test host, not when standing up a new
+instance to actually run. (Plugin-only development doesn't need this
+script at all: `sudo slickchook-plugin install plugins/<name>`
+already installs/updates one plugin directly from a checkout with no
+core rebuild involved — see `PLUGINS.md`.)
+
+Run it directly from the repository root:
 
 ```bash
 cargo build --locked --release --bins
@@ -72,7 +83,9 @@ stops with an error if the runner ownership, setgid mode, ACL, Docker socket, or
 mount options are unsafe. Keep the manual procedure below for auditing and
 troubleshooting.
 
-The same command is used for new installations and updates. On an update it:
+The same command works for both a first run and a later re-run against an
+already-installed host (the update case you'll actually hit in practice
+while iterating). On a re-run it:
 
 - stops an existing `slickchook.service` before replacing binaries;
 - repairs legacy service-account settings and removes unsafe direct membership
