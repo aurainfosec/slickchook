@@ -79,3 +79,43 @@
   change.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Reviewed Slickchook against CVE-2026-66384 (a real, current JFrog
+  Artifactory path traversal - a Docker cache subsystem derives
+  destination file paths from remote-repository-supplied metadata
+  without sufficiently canonicalizing/validating them against the
+  cache root, letting an authenticated user write outside it), per a
+  direct request to confirm Slickchook doesn't share the same class of
+  issue. Read the actual CVE record rather than assume its mechanism
+  from the "docker container escape" framing alone - it's a path
+  traversal write bug, not literally an escape from container
+  isolation, but the underlying pattern (external metadata driving a
+  filesystem path without containment) is exactly the thing to check
+  for here.
+  Audited every equivalent path-construction surface in the codebase:
+  `run_id`-based artifact/input resolution (`storage.rs`), the
+  `read_artifact` MCP tool's genuinely client-controlled `path`
+  parameter (`plugin_manager.rs`), and the runner binary's own
+  independent re-validation of manifest/artifact/input paths
+  (`slickchook-runner.rs`) - confirmed every one canonicalizes and
+  checks containment against its configured root before any
+  filesystem access, and that container mount destinations
+  (`/artifacts`, `/input`) are always fixed literals, never built from
+  plugin- or target-supplied data (eliminating the entire class of bug
+  the real CVE has). Also confirmed Rust's `Path::starts_with` compares
+  whole path components, not raw string prefixes, ruling out a
+  sibling-directory bypass (e.g. `/artifacts-evil` matching a naive
+  `/artifacts` prefix check).
+  Found two existing, currently-passing automated tests that already
+  plant both a `../../etc/passwd`-style traversal attempt and a real
+  symlink escape and assert both are rejected -
+  `plugin_manager::tests::target_scoped_artifact_retrieval_end_to_end`
+  and `storage::tests::postgres_store_round_trip_when_configured` -
+  confirming this isn't just a point-in-time manual check but a
+  continuously-enforced regression guard.
+  No code changes needed - documented the review itself in
+  `SECURITY_CONSIDERATIONS.md`'s existing "runner canonicalizes...
+  configured roots" control, citing the specific CVE and the exact
+  tests that back it, and updated the file's "Last reviewed" date.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.

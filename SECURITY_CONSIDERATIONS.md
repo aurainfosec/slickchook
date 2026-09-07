@@ -4,7 +4,7 @@ This is a living record of Slickchook security assumptions, controls, and open
 concerns. Update it whenever a security-relevant behavior is introduced,
 discovered, fixed, or deliberately accepted.
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-25
 
 ## Trust boundaries
 
@@ -35,7 +35,23 @@ Last reviewed: 2026-08-07
   read-only root filesystem, `no-new-privileges`, and configured CPU, memory,
   PID, and time limits.
 - The runner canonicalizes the manifest and artifact paths and checks that they
-  are beneath their configured roots.
+  are beneath their configured roots. Reviewed directly against CVE-2026-66384
+  (a JFrog Artifactory path traversal where a Docker cache subsystem derived
+  destination file paths from remote-repository-supplied metadata without
+  canonicalizing/validating them against the cache root) on 2026-08-25:
+  confirmed Slickchook's own equivalent surfaces don't share this flaw. A
+  client-supplied `run_id` only ever drives a database lookup, never a direct
+  path join; the resulting `artifact_dir` (and `read_artifact`'s genuinely
+  client-controlled `path` parameter) are canonicalized and checked with
+  `canonical_contained()`/`starts_with()` against the configured root before
+  any filesystem access, which also resolves and rejects symlink escapes;
+  container mount destinations (`/artifacts`, `/input`) are always fixed
+  literals, never built from plugin- or target-supplied data. Both a `../`
+  traversal attempt and a planted symlink escape are asserted-rejected by
+  existing, currently-passing tests
+  (`plugin_manager::tests::target_scoped_artifact_retrieval_end_to_end`,
+  `storage::tests::postgres_store_round_trip_when_configured`), so this isn't
+  a one-time check.
 - The plugin installer rejects package contents that are not regular files or
   directories, normalizes installed ownership and permissions, serializes
   changes with a lock, stops the service while switching packages, installs by
