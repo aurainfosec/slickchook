@@ -11,5 +11,4 @@
   the latter emphasizing the convergence into summary and download.
   Documentation-only change, no code/behavior impact.
   Verified: `cargo build --locked --release --bins` and `cargo test --lib`
-  clean (unaffected by a docs-only change; re-run to confirm no regression
-  was introduced elsewhere on this branch).
+  clean.
