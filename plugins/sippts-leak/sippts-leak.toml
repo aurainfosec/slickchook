@@ -1,0 +1,102 @@
+name = "sippts-leak"
+container = "slickchook-plugin/sippts-leak:local"
+description = "Exploits the well-known SIP Digest Leak vulnerability against one authorized SIP phone/device using sippts's real leak module. Confirmed directly from source (sipdigestleak.py), not assumed: this sends a genuine INVITE to the target, and if it challenges back with a digest authentication request, immediately sends a BYE to cancel the call - capturing the digest challenge/response exchanged along the way. This is meaningfully more intrusive than a passive fingerprint: a vulnerable phone can actually ring briefly before the BYE cancels it. Only run this against a target actually in scope for this engagement, with the same authorization awareness this fleet's other higher-sensitivity techniques already require - this is not a passive check. Uses a plain UDP/TCP socket, not a raw one (confirmed from source) - it tries to bind local port 5060 first (matching a real SIP client's usual behavior) but automatically falls back to a free ephemeral port if that fails, so this plugin needs no elevated privilege or capability at all, unlike ike-scan's equivalent Aggressive-Mode PSK capture. Always writes any captured digest challenge to /artifacts/results.txt in the classic SipCrack format (ip\"local_ip\"username\"realm\"BYE\"uri\"nonce\"cnonce\"nc\"qop\"MD5\"response) - read that file back (via list_run_artifacts/read_artifact) and feed its line(s) directly into the sippts-dcrack plugin's hashes option to attempt cracking the captured password offline, mirroring the same capture-then-offline-crack pairing this fleet already uses for ike-scan's Aggressive-Mode PSK capture and psk-crack. auth_user/auth_pass are test-only credentials sippts can use to complete a second, authenticated exchange on phones that only leak on that follow-up round-trip, not the credentials being attacked - the same 'test-only, retained in run history' caution this fleet's medusa plugin already documents applies here too."
+fixed_args = ["leak", "-o", "/artifacts/results.txt"]
+
+[[options]]
+name = "target"
+description = "Authorized hostname or IP address of the SIP phone/device to target."
+required = true
+flag = "-i"
+
+[[options]]
+name = "rport"
+description = "Remote port. Default 5060."
+required = false
+flag = "-r"
+
+[[options]]
+name = "protocol"
+description = "Transport protocol: udp or tcp. Default udp."
+required = false
+flag = "-p"
+
+[[options]]
+name = "proxy"
+description = "Send through an outbound SIP proxy instead of directly to the target, as ip or ip:port."
+required = false
+flag = "-proxy"
+
+[[options]]
+name = "domain"
+description = "SIP domain to use in headers instead of the target's own address."
+required = false
+flag = "-d"
+
+[[options]]
+name = "from_user"
+description = "From-header user part. Default 100 (sippts's own default)."
+required = false
+flag = "-fu"
+
+[[options]]
+name = "to_user"
+description = "To-header user part. Default 100 (sippts's own default)."
+required = false
+flag = "-tu"
+
+[[options]]
+name = "user_agent"
+description = "Custom User-Agent header. Default 'pplsip', sippts's own default value."
+required = false
+flag = "-ua"
+
+[[options]]
+name = "sdp"
+description = "Include an SDP body in the INVITE, matching a real call attempt more closely."
+required = false
+flag = "-sdp"
+
+[[options]]
+name = "sdes"
+description = "Include SDES key material in the SDP body. Only applicable with sdp."
+required = false
+flag = "-sdes"
+
+[[options]]
+name = "auth_mode"
+description = "Which challenge header to expect: www (WWW-Authenticate, default) or proxy (Proxy-Authenticate)."
+required = false
+flag = "-auth"
+
+[[options]]
+name = "auth_user"
+description = "Test-only username for a second, authenticated exchange on phones that only leak on that follow-up round-trip - not the credential being attacked. Same test-only, retained-in-run-history caution as this fleet's medusa plugin applies here."
+required = false
+flag = "-user"
+
+[[options]]
+name = "auth_pass"
+description = "Test-only password paired with auth_user. See auth_user's own caution."
+required = false
+flag = "-pass"
+
+[[options]]
+name = "ping"
+description = "Ping the host before sending the attack."
+required = false
+flag = "-ping"
+
+[[options]]
+name = "verbose"
+description = "Show verbose progress output, including the raw SIP messages sent and received."
+required = false
+flag = "-v"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 120
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
