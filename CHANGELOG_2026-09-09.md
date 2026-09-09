@@ -197,3 +197,41 @@
   Documentation-only change, no code/behavior impact.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Added the `sippts-scan` plugin, wrapping the `scan` module of
+  `Pepelux/sippts` (pinned to its real latest tag, v4.1.2 - actively
+  maintained, most recently pushed June 2026) to discover and
+  fingerprint SIP (VoIP) services on an authorized target, including
+  matching a detected implementation against sippts's own bundled CVE
+  reference data. Chose this over the unofficial PyPI package named
+  `sippts` (confirmed live it's an unrelated third-party fork, "Forked
+  SIPPTS for PyPi Publishing", version 0.1.0, one release only - not the
+  real project) and built from the real upstream source instead.
+  Read the real source directly rather than assume from its docs:
+  confirmed `sipscan.py` (the module behind the `scan` subcommand
+  exposed here) only uses plain UDP/TCP/TLS sockets, never a raw socket
+  - so unlike `ike-scan`, this plugin needs no elevated privilege or
+  capability at all.
+  Also caught a real upstream packaging bug before ever building the
+  image: this tag's `pyproject.toml` declares its dependencies
+  dynamically from a `requirements.txt` file that doesn't actually exist
+  anywhere in the real repo contents at this tag (confirmed by listing
+  them directly) - `pip install .` would fail outright on this alone.
+  Worked around it by writing that file ourselves in the Dockerfile,
+  matching `setup.py`'s own real `install_requires` list exactly, so the
+  install can actually resolve its metadata.
+  Deliberately exposes only the `scan` subcommand of sippts's much
+  larger multi-tool suite (~20 subcommands) - scoped to discovery and
+  fingerprinting for this first plugin. Explicitly excluded from any
+  future plugin covering this project: `flood` (an actual SIP flood/DoS
+  tool) and `spoof` (ARP spoofing) - both are destructive techniques
+  outside what this fleet builds, not just deprioritized. `method`
+  (options/register/invite) is documented as a real intrusiveness
+  choice, not just a technical detail, since `invite` can cause a real
+  target phone to ring.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access, matching how every other plugin this session has been
+  verified: build/install/live-test happens after merge, on the real
+  deployed host.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
