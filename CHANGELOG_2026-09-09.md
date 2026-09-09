@@ -30,10 +30,11 @@
   default proposal" limitation, and that `vendor`/`trans` can each only
   be supplied once per call through this schema even though ike-scan
   itself supports repeating either flag.
-  No Docker build/live verification yet - this sandbox has no `docker`
-  socket access, matching how every other plugin this session has been
-  verified: build/install/live-test happens after merge, on the real
-  deployed host.
+  Live-verified after redeploy: a real Main Mode probe against
+  `scanme.nmap.org` completed cleanly (`exit_code: 0`), confirming
+  `run_as_root` correctly allows binding to the privileged source port
+  500, with an honest, expected negative result (no IKE responder on
+  that particular test target).
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, including the existing `scan_plugins`-based manifest
   scan which parses every plugin directory) clean.
@@ -68,8 +69,15 @@
   exponentially with length) via this plugin's own `timeout_seconds`,
   documented explicitly so a deliberately large brute-force attempt is
   cut off rather than left running indefinitely.
-  No Docker build/live verification yet, for the same reason as
-  `ike-scan` above - this sandbox has no `docker` socket access.
+  Live-verified after redeploy with a genuine cryptographic correctness
+  check, not just a smoke test: independently computed a real IKE
+  Aggressive-Mode PSK hash in Python (following the exact RFC 2409
+  HMAC-SHA1 SKEYID/HASH_R algorithm confirmed from `psk-crack.c`'s own
+  source) using a real word from the bundled dictionary as the
+  password, fed the resulting 9-field colon-separated hex line in as
+  `psk_params`, and the plugin correctly cracked it - confirming the
+  wrapper's arg extraction, the temp-file handoff, and the real binary's
+  own hash computation all work correctly end to end.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
 
@@ -94,3 +102,44 @@
   that.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, docs-only change) clean.
+
+- Added the `cmseek` plugin, wrapping `Tuhinshubhra/CMSeeK` to identify
+  which CMS (180+ signatures, all bundled directly in the tool's own
+  source - no separate database to fetch) an authorized web target runs,
+  with deeper version/plugin/theme enumeration for the major platforms
+  it supports (WordPress, Joomla, Drupal, Magento, and others).
+  CMSeeK has no meaningful version tags - its latest git tag (v.1.1.3)
+  is frozen at a 2020 commit even though master keeps receiving real,
+  ongoing community fixes and new CMS signatures (confirmed live via its
+  own commit history, most recently July 2026) - pinned to that exact
+  current commit (03a6e7f8) instead of the stale tag.
+  Read the tool's real source directly before designing the manifest,
+  rather than trust its README: confirmed its single-target `-u`
+  invocation (used here) never hits any of its several interactive
+  `input()` prompts, which only exist on its multi-site/menu-driven
+  paths this plugin deliberately doesn't expose - except for two real
+  edge cases that `-u` alone doesn't avoid: a fresh results directory on
+  first run, and its own default (unset) redirect-handling behavior,
+  which normally prompts interactively on any mid-scan redirect. Both
+  are confirmed suppressed by unconditionally setting `--batch` in
+  `fixed_args` - the redirect case specifically auto-defaults to
+  "follow it" under batch mode with no extra flag needed, so only
+  no_redirect (the sole way to select "never follow a redirect") is
+  exposed as its own option, not a --follow-redirect flag as well, which
+  would have been redundant.
+  Also confirmed from source (cmseekdb/basic.py) a genuine
+  read-only-filesystem gotcha, the same class already seen in several
+  other plugins this project has built: CMSeeK writes results to its
+  own working directory, using its installed directory only if that
+  happens to be writable and falling back to the process's actual
+  current working directory otherwise. Fixed with a second `WORKDIR
+  /artifacts` in the Dockerfile (after the one used to `pip install` its
+  requirements from its own installed directory) - this makes the tool
+  silently take the correct, writable fallback path with no prompt of
+  any kind, rather than needing a custom wrapper script.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access, matching how every other plugin this session has been
+  verified: build/install/live-test happens after merge, on the real
+  deployed host.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
