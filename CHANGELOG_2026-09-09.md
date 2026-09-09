@@ -292,3 +292,35 @@
   real build.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Found and fixed a genuine upstream bug in `sippts-dcrack`'s bruteforce
+  mode, caught during its first real live-verification attempt: an
+  independently-computed, correct SIP Digest hash (following the exact
+  RFC 2409/7616 HA1/HA2/response algorithm confirmed from `sippts`'s own
+  `calculateHash()`) was correctly tried as a candidate - visible in the
+  tool's own progress output - but still reported as "not found."
+  Reproduced this locally, entirely independent of Docker, before
+  assuming it was a bug in this plugin, our JSON/argv transport, or the
+  wrapper: called `SipDigestCrack.crack()` directly with the exact known-
+  correct arguments and confirmed it still returned empty. Traced it
+  with a temporarily instrumented copy of the real source (replacing its
+  bare `except: pass` with one that prints the real traceback) to
+  `sipdigestcrack.py`'s own `save_data()` method, called immediately
+  after a real match is found to record it: its bruteforce-mode format
+  string is missing one `%s` placeholder relative to its 6-element
+  argument tuple (its wordlist-mode sibling, two lines above in the same
+  function, correctly has all six), raising a real `TypeError` that gets
+  silently swallowed by `crack()`'s own bare `except`, so a genuinely
+  successful crack reports as a clean miss every single time. Confirmed
+  the fix by patching that exact line locally and re-running the same
+  test - the same known-correct password was then correctly reported.
+  Patched at build time (`sed` against the installed package file,
+  targeting only the exact broken 5-placeholder string - its two
+  already-correct 6-placeholder siblings are untouched) rather than
+  shipping a bruteforce mode that could never actually report success.
+  Documented the finding directly in the manifest, since without this
+  fix bruteforce mode in the real upstream tool cannot ever report a
+  successful crack, regardless of whether the password is actually
+  right.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, manifest/Dockerfile-only change) clean.
