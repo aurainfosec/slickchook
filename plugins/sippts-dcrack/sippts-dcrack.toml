@@ -1,0 +1,67 @@
+name = "sippts-dcrack"
+container = "slickchook-plugin/sippts-dcrack:local"
+description = "Attempts to crack SIP Digest authentication hashes (the kind produced by the sippts-leak plugin's SIP Digest Leak technique, or any other capture in the classic SipCrack format) using sippts's real dcrack module. Purely local, offline computation - no network activity of its own, hence network=none in this plugin's docker policy, the safest category this fleet has. Paste the exact captured hash line(s) into hashes, one entry per line in the format ipsrc\"ipdst\"username\"realm\"method\"uri\"nonce\"cnonce\"nc\"qop\"algorithm\"response (confirmed from sipdigestcrack.py's own source, not just guessed) - this fleet's schema has no mechanism to hand a container an inline multi-line blob except as a CLI option value, so a thin wrapper here writes hashes verbatim to a file and invokes the real dcrack with that file via its own -f flag. Confirmed from source: dcrack's exit code is always 0 whether or not a password was actually cracked - a successful crack and a clean miss both exit cleanly, so the result must be read from the printed table itself ('Nothing found' vs an actual row with a cracked password), not from exit_code. Default mode is dictionary cracking against wordlist - since this fleet has no mechanism to upload an arbitrary wordlist file directly, wordlist must be a path already present under this run's own /input directory, populated by chaining input_run_id from a prior wordlist-generating plugin's run (matching the same chaining pattern already used elsewhere in this fleet) - bruteforce mode doesn't need this at all. bruteforce switches to exhaustive character-set cracking instead of a wordlist - be deliberate about charset/min/max: sippts's own defaults for this mode (charset=printable, a 94-character set, max length=8) combine to an astronomically large search space that will never complete in any reasonable time - this plugin's own timeout_seconds will simply cut off a run that's too large rather than let it run unbounded, so choose small, deliberate values (a short max length, or a narrower charset like digits or hexdigits) rather than relying on the tool's own defaults. This is the same kind of higher-sensitivity, deliberately-authorized technique already covered by other plugins in this fleet that process or crack captured key material - only run this against a hash captured from a target actually in scope for this engagement."
+fixed_args = []
+
+[[options]]
+name = "hashes"
+description = "The exact SIP Digest hash line(s) to crack, one entry per line, in SipCrack format (ipsrc\"ipdst\"username\"realm\"method\"uri\"nonce\"cnonce\"nc\"qop\"algorithm\"response). Pasted verbatim into a file for the real dcrack module to read."
+required = true
+flag = "--slickchook-hashes"
+
+[[options]]
+name = "wordlist"
+description = "Path to a wordlist file already present under this run's own /input directory (populate it by chaining input_run_id from a prior wordlist-generating plugin's run). Ignored if bruteforce is set."
+required = false
+flag = "-w"
+
+[[options]]
+name = "bruteforce"
+description = "Switch to brute-force mode instead of the default wordlist mode. See this plugin's own description for the real unbounded-runtime risk of this tool's own default charset/length combination - choose charset/max deliberately."
+required = false
+flag = "-bf"
+
+[[options]]
+name = "charset"
+description = "Character set for bruteforce mode: digits, ascii_letters, ascii_lowercase, ascii_uppercase, hexdigits, octdigits, punctuation, printable, whitespace, or a literal custom character set. Defaults to sippts's own default (printable, all printable ASCII characters) if not set - see this plugin's own description for why that default is risky combined with a large max."
+required = false
+flag = "-charset"
+
+[[options]]
+name = "min_length"
+description = "Minimum password length for bruteforce mode. Defaults to sippts's own default (1) if not set."
+required = false
+flag = "-min"
+
+[[options]]
+name = "max_length"
+description = "Maximum password length for bruteforce mode. Defaults to sippts's own default (8) if not set - see this plugin's own description for why this needs to be chosen deliberately, not left at the tool's own default, when combined with a large charset."
+required = false
+flag = "-max"
+
+[[options]]
+name = "prefix"
+description = "Known fixed prefix to prepend to every candidate password, narrowing the search space."
+required = false
+flag = "-p"
+
+[[options]]
+name = "suffix"
+description = "Known fixed suffix to append to every candidate password, narrowing the search space."
+required = false
+flag = "-s"
+
+[[options]]
+name = "threads"
+description = "Number of concurrent threads. Defaults to sippts's own default (10) if not set."
+required = false
+flag = "-th"
+
+[docker]
+network = "none"
+memory = "512m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 300
+input_read_only = true
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
