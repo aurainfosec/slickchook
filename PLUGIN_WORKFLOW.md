@@ -53,6 +53,18 @@ real run, rather than trusting its `--help` text or README. That checklist
 has caught real bugs on nearly every plugin built so far; it's not
 optional polish.
 
+If the change touches `SKILL.md`, keep it plugin-agnostic: describe
+methodology by capability role ("a template-based vulnerability scanner,"
+"a WAF/CDN fingerprinting plugin"), never by hardcoding a specific plugin
+name. The reason is structural, not stylistic - the MCP client is meant
+to enumerate what's actually available and how to use it by calling
+`list_plugins` and reading each plugin's own manifest description, which
+is always current by construction. A static prose reference to a named
+plugin in `SKILL.md` is a second copy of that information that can
+silently drift out of sync as plugins are added, renamed, or changed -
+self-documenting, enumerable plugins are the point; don't undermine that
+by re-describing individual plugins in fixed documentation elsewhere.
+
 Before a PR is opened, it should already be clean:
 
 ```
@@ -132,7 +144,10 @@ The real test target is:
 From that client, confirm:
 
 1. `list_plugins` shows the new/changed plugin, with the manifest's real
-   description and options rendering correctly.
+   description and options rendering correctly - this is the client
+   discovering the plugin's capability directly from its own
+   self-description, not from a separate written-down reference that
+   could be stale.
 2. `run_plugin` (or `start_plugin` / `plugin_status` for a long-running
    one) against an authorized test target produces the expected real
    output.

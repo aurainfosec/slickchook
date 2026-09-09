@@ -72,3 +72,25 @@
   `ike-scan` above - this sandbox has no `docker` socket access.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Proposed `PLUGIN_WORKFLOW.md`, an end-to-end outline of the
+  plugin-building workflow this project has actually used throughout its
+  development: stable baseline -> clone/branch -> implement and verify
+  locally -> PR -> update local repo and redeploy -> test from a real,
+  containerized MCP client connecting over TLS (distinct from the
+  loopback diagnostic shortcuts used for fast iteration) -> iterate.
+
+- Extended `PLUGIN_WORKFLOW.md` with an explicit note, per direct
+  request: `SKILL.md` (and documentation generally) should stay
+  plugin-agnostic, describing methodology by capability role rather than
+  hardcoding specific plugin names. This isn't just a style preference -
+  the MCP client is meant to enumerate what's actually available via
+  `list_plugins`, reading each plugin's own always-current manifest
+  description directly, rather than falling back on a separate
+  written-down reference to a named plugin that can silently drift out
+  of sync as plugins are added, renamed, or changed. Self-documenting,
+  enumerable plugins are the point of the design; fixed prose
+  documentation that re-describes individual plugins would undermine
+  that.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, docs-only change) clean.
