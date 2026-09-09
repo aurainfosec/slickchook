@@ -250,3 +250,45 @@
   Dockerfile actually builds.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, unaffected - Dockerfile-only change) clean.
+
+- Added the `sippts-dcrack` plugin, wrapping sippts's real `dcrack`
+  module to crack SIP Digest authentication hashes offline (the kind
+  the not-yet-built `sippts-leak` plugin's SIP Digest Leak technique
+  will produce, or any other capture in the classic SipCrack format).
+  Purely local computation - `network = "none"`, the safest category
+  this fleet has.
+  Read `sipdigestcrack.py`'s own source directly rather than guess the
+  input format: confirmed the real file layout (12 double-quote-
+  separated fields per line: source/dest IP, username, realm, method,
+  URI, nonce, cnonce, nc, qop, algorithm, response) and reused the same
+  wrapper pattern as `psk-crack` - a thin Python entrypoint accepts the
+  hash line(s) as an inline `--slickchook-hashes` option (verified
+  locally against a stand-in binary: correctly extracts it regardless
+  of position, writes it to a file, and forwards everything else
+  unchanged), then execs the real `dcrack` with `-f` pointing at that
+  file. Confirmed the same real, easy-to-misread gotcha as `psk-crack`:
+  exit code is always 0 regardless of whether anything was cracked.
+  Found a second, more serious real risk from source: dcrack's own
+  bruteforce-mode defaults (charset=printable, a 94-character set, max
+  length=8) combine to roughly 6*10^15 possible candidates - the
+  manifest documents this loudly and relies on this plugin's own
+  `timeout_seconds` to cut off a run that's too large, rather than
+  overriding the tool's own defaults outright.
+  Also found and fixed a real read-only-filesystem gotcha from source:
+  dcrack writes a resume-cache file (`sipdigestcrack.res`) to its own
+  current working directory on every run - meaningless in this fleet's
+  fresh-container-per-run model, but needing a writable CWD regardless
+  to avoid crashing. Fixed with `WORKDIR /tmp` in the Dockerfile, which
+  also keeps this leftover file out of `/artifacts` entirely.
+  Wordlist mode needs a file already present under the run's own
+  `/input` directory, populated by chaining `input_run_id` from a prior
+  wordlist-generating plugin's run - the same chaining mechanism already
+  used elsewhere in this fleet, documented rather than reinvented with
+  a bundled static wordlist.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access; the wrapper's own argument-extraction/file-writing
+  logic was verified locally against a stand-in binary, independent of
+  docker, matching how `psk-crack` was verified before its own first
+  real build.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
