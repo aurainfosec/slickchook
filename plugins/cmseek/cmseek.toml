@@ -1,0 +1,72 @@
+name = "cmseek"
+container = "slickchook-plugin/cmseek:local"
+description = "Detects which CMS (out of 180+ signatures bundled directly in the tool's own source - no separate signature database to fetch or update) an authorized web target is running, then runs a deeper version/plugin/theme enumeration for the major platforms CMSeeK supports that kind of scan for (WordPress, Joomla, Drupal, Magento, and others - light_scan/only_cms control how far this goes, see below). Confirmed live against the tool's own real source (Tuhinshubhra/CMSeeK), not assumed from its README: the single-target invocation (-u, used here) never hits any of its several interactive input() prompts - those only exist on its multi-site/menu-driven paths, which this plugin deliberately doesn't expose. --batch is always set in fixed_args regardless, for two real reasons confirmed from source: a fresh /artifacts directory has no prior CMSeeK 'Result' index yet on a first run, which would otherwise hit one interactive prompt even on the -u path; and by default (redirect_conf='0', neither follow_redirect nor no_redirect passed) a redirect encountered mid-scan prompts interactively too - --batch alone already makes that case auto-answer 'yes, follow it' with no separate flag needed, so no_redirect is the only redirect-related option actually exposed here (it's the sole way to select 'never follow a redirect' instead). Results land under /artifacts/Result/<processed-target>/cms.json, retrievable via list_run_artifacts/read_artifact once the run completes. only_cms is the lightest option (CMS identification only, no version or deeper enumeration); light_scan adds version detection but skips the deeper per-CMS deep-scan modules; leaving both unset runs the fullest enumeration CMSeeK offers for a detected major platform. ignore_cms and strict_cms only accept comma-separated CMS ID strings as CMSeeK itself defines them (e.g. wp, joomla, drupal - see the tool's own cmseekdb/cmss.py for the full id list), not arbitrary product names. googlebot's User-Agent override takes precedence over user_agent, which itself takes precedence over random_agent, matching the tool's own real option-resolution order."
+fixed_args = ["--batch"]
+
+[[options]]
+name = "target"
+description = "Authorized URL to scan, e.g. https://example.com."
+required = true
+flag = "-u"
+
+[[options]]
+name = "only_cms"
+description = "Lightest mode: only identify which CMS is running, skip version detection and deep scanning entirely."
+required = false
+flag = "-o"
+
+[[options]]
+name = "light_scan"
+description = "Detect CMS and version, but skip the deeper per-CMS deep-scan modules (e.g. plugin/theme/component enumeration for WordPress/Joomla/Drupal). Ignored if only_cms is set."
+required = false
+flag = "--light-scan"
+
+[[options]]
+name = "ignore_cms"
+description = "Comma-separated CMSeeK CMS IDs to skip checking for (e.g. 'wp,joomla' - see CMSeeK's own cmseekdb/cmss.py for the full id list, not arbitrary product names)."
+required = false
+flag = "-i"
+
+[[options]]
+name = "strict_cms"
+description = "Comma-separated CMSeeK CMS IDs to check against exclusively - no other CMS will be considered. Same id format as ignore_cms."
+required = false
+flag = "--strict-cms"
+
+[[options]]
+name = "no_redirect"
+description = "Do not follow an HTTP redirect encountered mid-scan - by default (this option unset) a redirect is auto-followed, since --batch is always set."
+required = false
+flag = "--no-redirect"
+
+[[options]]
+name = "user_agent"
+description = "Custom User-Agent string. Overridden by googlebot if that is also set; overrides random_agent."
+required = false
+flag = "--user-agent"
+
+[[options]]
+name = "random_agent"
+description = "Use a randomized User-Agent. Overridden by user_agent or googlebot if either is also set."
+required = false
+flag = "-r"
+
+[[options]]
+name = "googlebot"
+description = "Use a Googlebot User-Agent string. Takes precedence over user_agent and random_agent if either is also set."
+required = false
+flag = "--googlebot"
+
+[[options]]
+name = "verbose"
+description = "Show verbose progress output."
+required = false
+flag = "-v"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 64
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
