@@ -324,3 +324,38 @@
   right.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, manifest/Dockerfile-only change) clean.
+
+- Added the `sippts-leak` plugin, wrapping sippts's real `leak` module
+  to exploit the well-known SIP Digest Leak vulnerability - completing
+  the capture-then-offline-crack pairing `sippts-dcrack` already sets up
+  (mirroring `ike-scan`'s `pskcrack` + `psk-crack` pairing). Confirmed
+  from source (`sipdigestleak.py`) that this sends a genuine INVITE and
+  a follow-up BYE to a real target - meaningfully more intrusive than a
+  passive fingerprint, since a vulnerable phone can actually ring
+  briefly - documented with the same authorization-awareness caution
+  already given to `sippts-scan`'s `invite` method.
+  Confirmed from source it needs no elevated privilege or capability at
+  all, unlike `ike-scan`'s equivalent Aggressive-Mode PSK capture: it
+  tries to bind local port 5060 first (matching real SIP client
+  behavior) but automatically falls back to a free ephemeral port if
+  that fails, and only ever uses a plain socket, never a raw one.
+  Always writes any captured digest challenge to
+  `/artifacts/results.txt` in the exact SipCrack format `sippts-dcrack`
+  already expects, so its output can be read back and fed directly into
+  that plugin's `hashes` option.
+  Having just found a real format-string bug in the sibling `dcrack`
+  module (see the entry above), proactively checked every `%`-format
+  string in this module for the same placeholder-count-vs-argument-
+  count mismatch before shipping, rather than wait to discover it during
+  live verification - all of them (including the exact line that writes
+  `/artifacts/results.txt`) check out correctly.
+  `auth_user`/`auth_pass` (test-only credentials for phones that only
+  leak on a second, authenticated round-trip) carry the same "test-only,
+  retained in run history" caution this fleet's `medusa` plugin already
+  documents.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access, matching how every other plugin this session has been
+  verified: build/install/live-test happens after merge, on the real
+  deployed host.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
