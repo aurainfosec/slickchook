@@ -547,3 +547,20 @@
   deployed host.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Fixed a real `trivy-image` bug found on its first actual live test:
+  the bake-then-copy-to-tmpfs wrapper (the same pattern already used by
+  `jwt-analyzer`) failed with `cp: write error: No space left on
+  device`. Checked the real size of the baked-in template rather than
+  guess a bigger tmpfs number: 2.7GB (1.3GB vulnerability DB, 1.4GB Java
+  DB) - far too large to copy on every ephemeral run without a heavy
+  memory/latency cost. Fixed properly instead of just inflating the
+  tmpfs size: Trivy has a documented in-memory scan-cache backend
+  (`--cache-backend memory`) - since only the scan cache (not the
+  read-mostly DB itself) ever needs to be writable, `--cache-dir` can
+  point directly at the read-only baked-in template with no copy step
+  or wrapper entrypoint needed at all. Removed `entrypoint.sh` entirely;
+  `ENTRYPOINT` is now the plain `trivy` binary, matching the simpler
+  precedent of most other wrapped-binary plugins in this fleet.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, manifest/Dockerfile-only change) clean.
