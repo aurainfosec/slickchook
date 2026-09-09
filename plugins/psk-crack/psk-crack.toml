@@ -1,0 +1,49 @@
+name = "psk-crack"
+container = "slickchook-plugin/psk-crack:local"
+description = "Attempts to crack an IKE Aggressive Mode pre-shared-key hash captured earlier by the ike-scan plugin's pskcrack option, using Debian's real psk-crack utility (bundled in the same ike-scan package). Purely local, offline computation - no network activity of its own, hence network=none in this plugin's docker policy, the safest category this fleet has. Paste the exact PSK-parameter line(s) ike-scan's pskcrack output produced (read back via that prior run's own stdout artifact) into psk_params - this fleet's schema has no mechanism to hand a container an inline multi-line blob except as a CLI option value, so a thin wrapper here writes psk_params verbatim to a file and invokes the real psk-crack with that file as its positional argument (confirmed from psk-crack's own C source, not just its man page - it genuinely takes a real file path via argv, not only shell stdin redirection as the man page's synopsis alone might suggest). Confirmed from source: psk-crack's exit code is always 0 whether or not a key was actually cracked - a successful crack and a clean miss both exit cleanly, so the result must be read from the printed text itself (a line reading 'key \"...\" matches ... hash ...' on success, or 'no match found for ... hash ...' on a miss), not from exit_code. Default mode is dictionary cracking against the real dictionary bundled with this same Debian package; bruteforce switches to exhaustive character-set cracking instead - runtime grows exponentially with length (charset_size^length attempts), so choose bruteforce length deliberately and expect this container's own timeout_seconds to cut off a run that's too large rather than let it run unbounded. This is the same kind of higher-sensitivity, deliberately-authorized technique already covered by other plugins in this fleet that elicit or process key material - only run this against a hash captured from a target actually in scope for this engagement."
+fixed_args = []
+
+[[options]]
+name = "psk_params"
+description = "The exact PSK-parameter line(s) produced by ike-scan's pskcrack option (one entry per line for multiple captures). Pasted verbatim into a file for the real psk-crack binary to read - see this plugin's own description for why this is a plain option rather than a file upload."
+required = true
+flag = "--slickchook-psk-params"
+
+[[options]]
+name = "dictionary"
+description = "Dictionary file path to use for dictionary-mode cracking. Defaults to the real dictionary bundled with this Debian package. Ignored if bruteforce is set."
+required = false
+flag = "--dictionary"
+default = "/usr/share/ike-scan/psk-crack-dictionary"
+
+[[options]]
+name = "bruteforce"
+description = "Switch to brute-force mode, trying every combination of charset up to this many characters instead of the default dictionary. Runtime grows exponentially with length - see this plugin's own description."
+required = false
+flag = "--bruteforce"
+
+[[options]]
+name = "charset"
+description = "Character set to use for bruteforce mode. Defaults to psk-crack's own default (digits and lowercase a-z) if not set. Only applicable with bruteforce."
+required = false
+flag = "--charset"
+
+[[options]]
+name = "norteluser"
+description = "Username to use when cracking a Nortel Contivity/VPN Router proprietary-format hash instead of a standard MD5/SHA1 hash. Only needed for that specific hash format, and only one hash can be cracked at a time when this is set."
+required = false
+flag = "--norteluser"
+
+[[options]]
+name = "verbose"
+description = "Show progress messages, including every candidate key tried."
+required = false
+flag = "--verbose"
+
+[docker]
+network = "none"
+memory = "256m"
+cpus = "1"
+pids_limit = 32
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
