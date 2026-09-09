@@ -455,3 +455,53 @@
   for this deeper one).
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, manifest-only change) clean.
+
+- Removed the `katana-headless` plugin entirely, after `run_as_root`
+  turned out not to be sufficient either, and further live investigation
+  found the real fix would require a security tradeoff not worth taking
+  for this specific plugin.
+  After redeploying the `run_as_root` fix, a real crawl through the
+  actual MCP interface was still completely silent (`exit_code: 0`, zero
+  output) - because this fleet's runner always applies `--read-only
+  --cap-drop ALL --security-opt no-new-privileges` regardless of
+  `run_as_root`, which only changes the container's `--user`. Bisected
+  every one of those restrictions individually via direct `docker run`
+  on the deployed host (many rounds, with the operator's direct help):
+  capabilities on/off, `no-new-privileges` on/off, and the UID itself
+  were all confirmed completely uninvolved - every combination of those
+  three, with or without root, behaved identically. The actual cause
+  isolated down to one specific thing: mounting `/tmp` as *any* tmpfs
+  (regardless of mode, size, or exec/suid/dev flags) breaks Chrome
+  silently, while the exact same tmpfs treatment of `/dev/shm` works
+  fine, and `/tmp` handled as the container's own normal (non-tmpfs)
+  writable layer also works fine. Confirmed this isn't about missing
+  baked-in content at that path either (the image's own default `/tmp`
+  is a plain, empty, standard `drwxrwxrwt` directory) or about
+  `$HOME`/`$TMPDIR` pointing at the wrong place (redirecting both to the
+  already-proven-working `/dev/shm`, while leaving `/tmp` itself
+  genuinely read-only, still failed silently) - it's specifically
+  `/tmp`'s filesystem type that some part of Chrome or Katana's headless
+  engine depends on, independent of permissions, ownership, or which
+  environment variables point where.
+  Since this fleet's containers need `--read-only` with an explicit
+  tmpfs override to have any writable path at all, and `/tmp` genuinely
+  needing to be a non-tmpfs writable filesystem has no fix available
+  through this manifest schema (the alternative - a real per-run,
+  host-backed writable directory instead of a tmpfs entry - would need
+  a core change to `slickchook-runner.rs`, not just a manifest change),
+  the only manifest-level fix left was dropping `--read-only` for this
+  plugin specifically. Raised this directly as a security question
+  rather than just applying it: this is the one plugin in this fleet
+  whose entire job is executing arbitrary, untrusted JavaScript from a
+  remote target - a categorically different risk profile than e.g.
+  `nmap`'s or `ike-scan`'s `run_as_root` exceptions, which don't involve
+  running attacker-influenced code at all. Decided not to ship this
+  plugin for now rather than accept that tradeoff. Removed
+  `plugins/katana-headless/` entirely (not left in a broken or
+  known-unsafe state) - this changelog entry is the record of the full
+  investigation, in case someone wants to pick it up again later (the
+  real per-run host-backed-writable-directory approach is the most
+  promising unexplored path, since it wouldn't need any of this
+  session's container-hardening tradeoffs at all).
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
