@@ -1,0 +1,115 @@
+name = "ike-scan"
+container = "slickchook-plugin/ike-scan:local"
+description = "Discovers and fingerprints IKE (ISAKMP/IPsec VPN) endpoints on one authorized target by sending a single crafted IKE Phase-1 proposal to UDP port 500 (or a custom port) and decoding whatever response comes back - a live host responds even if its IPsec policy would ultimately reject the connection, so this reveals VPN gateways that a plain port scan can't distinguish from any other closed/filtered UDP service. Main Mode (the default) is a normal, low-noise protocol probe matching real-world IKE client behavior - not an attack payload. showbackoff (--showbackoff) additionally fingerprints the specific IKE implementation/vendor by its retransmission timing pattern against ike-scan's own bundled reference table, waiting up to 60s after the last response by default. Confirmed directly from ike-scan's own C source (royhills/ike-scan, not assumed from --help text): the default main-mode/aggressive-mode path opens a plain UDP socket (not a raw socket - raw sockets are only used for a separate source-IP-spoofing feature this plugin doesn't expose), so the only real privilege requirement is being able to bind() to the default UDP source port 500, a privileged port below 1024. This fleet's cap_add allowlist only supports NET_RAW, which doesn't help here (this isn't a raw-socket capability need), so this plugin sets run_as_root=true as a deliberate, scoped exception - the same kind of exception nmap's own manifest already documents for a different underlying reason. Setting sport to a non-zero value above 1024 (or 0 for a random ephemeral port) would avoid needing root at all, but real-world IKE responders very often refuse to talk to anything other than source port 500, so this isn't set as the default. aggressive mode (--aggressive, requires id) probes IKE Aggressive Mode instead of Main Mode - combined with pskcrack, this is a well-known real technique: a vulnerable Aggressive Mode responder returns a hash of its pre-shared key in its very first reply, which the (separately packaged, not yet built as a plugin here) psk-crack tool can attempt to crack offline against a wordlist. This is meaningfully more sensitive than a passive fingerprint - it's deliberately eliciting crackable key material from the target - and needs the same authorization awareness §0 requires for any credentialed/exploit-adjacent technique, even though no attack payload is sent and nothing is actually cracked by this plugin itself. ikev2 (--ikev2) is documented upstream as experimental - only the default proposal is sent, and it has not been extensively tested against real IKEv2 responders. vendor and trans can each only be supplied once per call through this schema, even though ike-scan itself supports repeating either flag to send multiple Vendor ID or custom transform payloads in one probe. showbackoff is exposed as a plain on/off flag - its optional custom post-response wait time isn't exposed, so ike-scan's own 60-second default applies whenever it's enabled. Output is ike-scan's normal human-readable decoded text (not JSON), captured via this run's stdout artifact - use multiline for one payload per line when a response has many payloads to read through."
+fixed_args = []
+
+[[arguments]]
+name = "target"
+description = "Authorized hostname or IP address to probe."
+required = true
+position = 1
+
+[[options]]
+name = "aggressive"
+description = "Use IKE Aggressive Mode instead of the default Main Mode. Only applicable with id set. See this plugin's own description for the real-world PSK-hash-disclosure implication of combining this with pskcrack."
+required = false
+flag = "--aggressive"
+
+[[options]]
+name = "id"
+description = "Identification value for Aggressive Mode (e.g. a VPN group/tunnel name), as a string or 0x-prefixed hex value. Only applicable with aggressive."
+required = false
+flag = "--id"
+
+[[options]]
+name = "idtype"
+description = "Identification type number for Aggressive Mode. Default 3 (ID_USER_FQDN, RFC 2407 4.6.2). Only applicable with aggressive."
+required = false
+flag = "--idtype"
+
+[[options]]
+name = "dhgroup"
+description = "Diffie-Hellman group for Aggressive Mode or ikev2: 1, 2, 5, 14, 15, 16, 17, or 18 (MODP only). Default 2."
+required = false
+flag = "--dhgroup"
+
+[[options]]
+name = "pskcrack"
+description = "Output the Aggressive Mode pre-shared-key parameters (to this run's own stdout artifact) for offline cracking with the separate psk-crack utility. Only applicable to IKE Aggressive Mode - see this plugin's own description for the real-world implication of using this."
+required = false
+flag = "--pskcrack"
+
+[[options]]
+name = "ikev2"
+description = "Use IKE version 2 instead of the default IKEv1. Documented upstream as experimental - not extensively tested, and only the default proposal is sent (no custom transforms)."
+required = false
+flag = "--ikev2"
+
+[[options]]
+name = "trans"
+description = "One custom Phase-1 transform instead of ike-scan's default proposal set, e.g. '(1=1,2=2,3=1,4=2)' for Enc=3DES-CBC/Hash=SHA1/Auth=PSK/DH=2, or the older 'enc,hash,auth,group' form. See RFC 2409 Appendix A for attribute numbers. Only one transform can be supplied per call through this schema, even though ike-scan itself supports repeating this flag."
+required = false
+flag = "--trans"
+
+[[options]]
+name = "vendor"
+description = "One Vendor ID payload to send, as a hex value. Only one can be supplied per call through this schema, even though ike-scan itself supports repeating this flag to send several."
+required = false
+flag = "--vendor"
+
+[[options]]
+name = "showbackoff"
+description = "Fingerprint the specific IKE implementation by its retransmission timing pattern, against ike-scan's own bundled reference table. Waits up to 60 seconds after the last response by default (not customizable through this option) - factor this into how long a call may take."
+required = false
+flag = "--showbackoff"
+
+[[options]]
+name = "multiline"
+description = "Print each decoded payload on its own line (prefixed with a tab) instead of one long line per host - easier to read when a response carries many payloads."
+required = false
+flag = "--multiline"
+
+[[options]]
+name = "nat_t"
+description = "Use RFC 3947 NAT-Traversal encapsulation (adds/strips the non-ESP marker) and switches the default source/destination port to 4500 instead of 500."
+required = false
+flag = "--nat-t"
+
+[[options]]
+name = "sport"
+description = "UDP source port. Default 500 (or 4500 if nat_t is set); 0 for a random ephemeral port. Many real IKE responders only reply to source port 500, so changing this may reduce compatibility - see this plugin's own description for why 500 still needs run_as_root."
+required = false
+flag = "--sport"
+
+[[options]]
+name = "dport"
+description = "UDP destination port. Default 500 (or 4500 if nat_t is set)."
+required = false
+flag = "--dport"
+
+[[options]]
+name = "retry"
+description = "Total number of attempts per host. Default 3."
+required = false
+flag = "--retry"
+
+[[options]]
+name = "timeout"
+description = "Initial per-host timeout in milliseconds, before the backoff factor is applied to subsequent retries. Default 500."
+required = false
+flag = "--timeout"
+
+[[options]]
+name = "nodns"
+description = "Do not use DNS to resolve names - target must then be a literal IP address. Keeps this call's own network footprint limited to the IKE probe itself."
+required = false
+flag = "--nodns"
+
+[docker]
+network = "bridge"
+run_as_root = true
+memory = "256m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 180
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
