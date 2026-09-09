@@ -429,3 +429,29 @@
   what was actually verified live, not the original (wrong) claim.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, manifest-only change) clean.
+
+- Found and fixed a second, deeper real bug in `katana-headless`,
+  caught on the redeploy verifying the fix above: after the download
+  issue was gone, a real crawl against `scanme.nmap.org` still produced
+  zero output at all - `exit_code: 0`, completely empty stdout and
+  stderr, even with verbose logging enabled. Root-caused this properly
+  rather than guess, by bisecting one container restriction at a time
+  via direct `docker run` on the deployed host: capabilities dropped or
+  not, `no-new-privileges` on or off, read-only root filesystem on or
+  off - every combination under this fleet's usual unprivileged run-as
+  user (UID 65534, no matching `/etc/passwd` entry) failed exactly the
+  same way, silently. Running the identical invocation as root produced
+  a full, real crawl immediately (real page rendering, iframe/link
+  extraction, hundreds of discovered URLs). This isolates the cause
+  specifically to the unprivileged UID itself, not any capability or
+  filesystem restriction this fleet's containers otherwise apply.
+  Fixed with `run_as_root = true` in this plugin's docker policy - a
+  deliberate, scoped exception, the same kind `nmap`'s own manifest
+  already documents for a different underlying reason (nmap's raw-
+  packet techniques need literal EUID 0; here it's Chrome/Chromium's
+  own apparent need for a real, resolvable user identity to initialize
+  successfully - setting `$HOME` alone, the fix already used for the
+  plain `katana` plugin's own config-lookup issue, was not sufficient
+  for this deeper one).
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, manifest-only change) clean.
