@@ -235,3 +235,18 @@
   deployed host.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Fixed a real `sippts-scan` build failure found on its first actual
+  `slickchook-plugin install` after merge: `netifaces` (pulled in
+  transitively - `sipscan.py` itself imports it via sippts's own
+  `lib/functions.py`) has no prebuilt wheel for this Python/platform
+  combination, and needs to compile a small C extension from source,
+  which failed outright with `error: [Errno 2] No such file or
+  directory: 'gcc'` - the `python:3.13-slim` base image has no C
+  compiler installed at all. Fixed by adding `build-essential` to the
+  image's apt install step. This is exactly the kind of thing that
+  can't be caught without a real Docker build - `cargo test`'s manifest
+  scan only validates the TOML structure, not that the referenced
+  Dockerfile actually builds.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, unaffected - Dockerfile-only change) clean.
