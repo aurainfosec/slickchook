@@ -110,6 +110,11 @@ connected Slickchook instance efficiently, with authorized-scope
 discipline, breadth *and* depth, and a final packaged artifact
 collection — see [`SKILL.md`](SKILL.md).
 
+For getting that AI client's own MCP connection working (hostname
+resolution, TLS trust, loading `SKILL.md`, refreshing the plugin list
+after a redeploy, and common export tasks like timelines and Burp-
+importable URL lists), see [`CLIENT_SETUP.md`](CLIENT_SETUP.md).
+
 For local development:
 
 ```bash
