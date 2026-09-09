@@ -152,3 +152,48 @@
   deployed host.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Live-verified `cmseek` after redeploy (merged with Docker build/live
+  verification still pending, noted in its own entry above - this is
+  that follow-up, not an edit to that entry) against two pre-authorized
+  public test targets: `scanme.nmap.org` (real HTTP fetch, real
+  signature-matching pipeline, honest true-negative "Unable to detect
+  CMS" result - that host doesn't run one) and `testphp.vulnweb.com`
+  (the HTTP request itself timed out, most likely that target being
+  slow/unreachable at the moment rather than a plugin bug, since the
+  other target connected fine on the same deployment around the same
+  time). Both runs completed with `exit_code: 0` and correctly did not
+  hang on the "Result directory does not exist" first-run message. The
+  positive-detection path (a real CMS actually getting matched) hasn't
+  been exercised yet - that needs an explicitly authorized target that
+  actually runs one.
+
+- Added `CLIENT_SETUP.md`, covering the client side of a deployment: MCP
+  connection setup (hostname resolution via `/etc/hosts`/DNS since Caddy
+  keys its certificate to `CADDY_HOSTNAME`, not a bare IP; TLS trust,
+  following `RUNNER.md`'s existing recommendation of provisioning-time
+  certificate/fingerprint pinning over trust-on-first-connection, with
+  TOFU documented only as an explicitly weaker fallback and the same
+  rationale RUNNER.md already gives), loading `SKILL.md` into a client's
+  own context (confirmed from source there's no MCP resource/prompt
+  endpoint serving it - it's a plain repo file, loaded once per client
+  through whatever mechanism that client offers for standing
+  instructions), refreshing a client's cached plugin list after a
+  redeploy (confirmed from source there's no `tools/list_changed`
+  notification - an existing session needs a full reconnect, not a
+  partial refresh, to see a newly-installed or changed plugin), and five
+  common end-of-engagement tasks built on the existing tool surface:
+  reviewing/purging prior run history for a target
+  (`list_runs_by_target`/`purge_runs_by_target`), a timeline
+  (`list_runs_by_target`'s own already-sorted, timestamped output),
+  a recon/attack-surface report (an explicitly client-side synthesis
+  task over `list_runs_by_target` + `read_artifact`, not a built-in
+  export - matching `SKILL.md`'s own §4), an importable Burp Suite URL
+  list (pointing at `RUNNER.md`'s existing import-mechanics section
+  rather than duplicating it), and the full raw artifact archive
+  (`list_run_artifacts` + `read_artifact` across every run, matching
+  §5). Added a one-line pointer to it from `README.md`, next to the
+  existing `SKILL.md` reference.
+  Documentation-only change, no code/behavior impact.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
