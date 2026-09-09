@@ -1,0 +1,78 @@
+name = "trivy-image"
+container = "slickchook-plugin/trivy-image:local"
+description = "Scans one authorized container image for known OS-package and language-dependency vulnerabilities (vuln) and hardcoded secrets (secret) using the real, actively maintained Trivy scanner (aquasecurity/trivy, pinned to its current v0.74.0 release). image_ref is a real image reference like nginx:1.25 or registry.example.com/org/app:tag - this plugin only ever pulls the image directly from its own registry over the network (--image-src remote, always set in fixed_args), the same way `docker pull` would; it never uses a local docker/containerd/podman socket, matching this fleet's fundamental invariant that plugin containers never get Docker socket access. The vulnerability and Java-index databases are baked into the image at build time (confirmed real flags: --download-db-only/--download-java-db-only) rather than fetched on every ephemeral run, matching this fleet's existing osvscanner precedent - this plugin's own runtime network activity is limited to pulling the actual target image being scanned, not any database traffic. Misconfiguration and license scanning are deliberately out of scope here: both need a separately-fetched 'checks bundle' with no equivalent build-time pre-fetch-only flag (confirmed from Trivy's own docs), so scanners is constrained to Trivy's own real default scanner set for image scanning (vuln and/or secret) - passing misconfig or license here would either silently do nothing useful or trigger an unwanted runtime fetch attempt. Trivy's scan cache (distinct from the read-mostly vulnerability DB, recording each run's own analysis results) is stored in the same --cache-dir Trivy uses for the DB itself - confirmed from Trivy's own docs, not assumed - which would break under this fleet's always-read-only containers if pointed at the baked-in build-time location directly; a thin wrapper entrypoint copies that baked template into writable tmpfs on every run instead, the same pattern already used by the jwt-analyzer plugin for an analogous constraint. username/password/registry_token authenticate against a private registry to pull a non-public image - real, live credentials against real infrastructure, the same test-only, retained-in-run-history caution this fleet's medusa plugin already documents applies here too."
+fixed_args = ["image", "--skip-db-update", "--skip-java-db-update", "--skip-check-update", "--image-src", "remote", "--format", "json"]
+
+[[arguments]]
+name = "image_ref"
+description = "Authorized container image reference to scan, e.g. nginx:1.25 or registry.example.com/org/app:tag."
+required = true
+position = 1
+
+[[options]]
+name = "severity"
+description = "Comma-separated severities to report: UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL. Omit for Trivy's own default (all of them)."
+required = false
+flag = "--severity"
+
+[[options]]
+name = "ignore_unfixed"
+description = "Only report vulnerabilities that already have a fix available, hiding ones with no current patch."
+required = false
+flag = "--ignore-unfixed"
+
+[[options]]
+name = "scanners"
+description = "Comma-separated list of what to scan for: vuln, secret, or both. Omit for Trivy's own real default for image scanning (vuln,secret). Do not set this to misconfig or license - see this plugin's own description for why those are out of scope here."
+required = false
+flag = "--scanners"
+
+[[options]]
+name = "pkg_types"
+description = "Comma-separated package types to include: os, library, or both. Omit for Trivy's own default (both)."
+required = false
+flag = "--pkg-types"
+
+[[options]]
+name = "platform"
+description = "For a multi-architecture image, the specific platform to scan, as os/arch (e.g. linux/arm64). Omit to let Trivy pick its own default."
+required = false
+flag = "--platform"
+
+[[options]]
+name = "max_image_size"
+description = "Refuse to process an image larger than this human-readable size (e.g. '500MB') - a real bound against an unexpectedly huge image consuming excessive time/memory. Experimental, per Trivy's own docs."
+required = false
+flag = "--max-image-size"
+
+[[options]]
+name = "offline_scan"
+description = "Do not issue extra API requests beyond the registry pull itself (e.g. for license/dependency identification) - a quieter mode."
+required = false
+flag = "--offline-scan"
+
+[[options]]
+name = "username"
+description = "Username for a private registry the image_ref lives in. Test-only credential, retained in run history - the same caution this fleet's medusa plugin already documents applies here too."
+required = false
+flag = "--username"
+
+[[options]]
+name = "password"
+description = "Password paired with username, for a private registry. Same test-only, retained-in-run-history caution as username."
+required = false
+flag = "--password"
+
+[[options]]
+name = "registry_token"
+description = "Bearer token for a private registry, as an alternative to username/password. Same test-only, retained-in-run-history caution."
+required = false
+flag = "--registry-token"
+
+[docker]
+network = "bridge"
+memory = "2048m"
+cpus = "2"
+pids_limit = 256
+timeout_seconds = 600
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=1024m"]
