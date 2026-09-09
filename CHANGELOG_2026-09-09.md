@@ -505,3 +505,45 @@
   session's container-hardening tradeoffs at all).
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Added the `trivy-image` plugin, scanning one authorized container
+  image for known OS-package/language-dependency vulnerabilities and
+  hardcoded secrets, using `aquasecurity/trivy` (pinned to its current
+  v0.74.0 release, pushed the same day as this work - not stale).
+  Confirmed from Trivy's own docs (not assumed) that `--image-src
+  remote` makes it pull the target image directly from its own registry
+  over HTTP, the same way `docker pull` would, with no local
+  docker/containerd/podman socket involved at all - matching this
+  fleet's fundamental invariant that plugin containers never get Docker
+  socket access.
+  Baked the vulnerability DB and Java index DB into the image at build
+  time (real, documented `--download-db-only`/`--download-java-db-only`
+  flags) rather than fetching them on every ephemeral run, matching
+  this fleet's existing `osvscanner` precedent - this plugin's own
+  runtime network activity is limited to pulling the actual target
+  image, not any database traffic.
+  Deliberately scoped `scanners` to Trivy's own real default for image
+  scanning (vuln, secret) - misconfiguration and license scanning both
+  need a separately-fetched "checks bundle" with no equivalent build-
+  time pre-fetch-only flag (confirmed from Trivy's own docs), so
+  they're out of scope here rather than silently doing nothing useful
+  or triggering an unwanted runtime fetch.
+  Found and fixed a real gotcha before ever building the image, by
+  reading Trivy's own docs rather than assuming: its scan cache
+  (recording each run's own analysis results, distinct from the
+  read-mostly vulnerability DB) is stored in the same `--cache-dir` as
+  the DB itself - which would break under this fleet's always-read-only
+  containers if pointed directly at the baked-in build-time location.
+  Fixed with a thin wrapper entrypoint that copies that baked template
+  into writable tmpfs on every run instead, reusing the exact pattern
+  already established for the `jwt-analyzer` plugin's own, different
+  read-only-filesystem constraint.
+  `username`/`password`/`registry_token` (for scanning a private image)
+  carry the same test-only, retained-in-run-history caution this
+  fleet's `medusa` plugin already documents.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access, matching how every other plugin this session has been
+  verified: build/install/live-test happens after merge, on the real
+  deployed host.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
