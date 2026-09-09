@@ -409,3 +409,23 @@
   deployed host.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Fixed a real bug in `katana-headless` found during its first real live
+  test, caught only because it was actually run rather than trusting the
+  source read alone: `-system-chrome` (the auto-detecting flag this
+  plugin's own manifest previously relied on) turned out to only be
+  honored by Katana's separate `hybrid` engine - pure headless mode uses
+  a genuinely different code path (`pkg/engine/headless/browser`, not
+  `pkg/engine/hybrid` where that logic actually lives) that silently
+  ignores it. The live test showed exactly the failure this plugin was
+  built to avoid: a real `chrome-linux.zip` download from Google's own
+  CDN starting on every run, eating the crawl's own time budget and
+  producing no actual crawl output at all in the run this surfaced in.
+  Fixed by switching to `-system-chrome-path` with an explicit path to
+  the real Alpine-packaged binary (`/usr/bin/chromium`, confirmed
+  against Alpine 3.24's own chromium package file listing) - pure
+  headless mode's code does correctly honor an explicit path, just not
+  the auto-detecting flag. Updated the manifest description to reflect
+  what was actually verified live, not the original (wrong) claim.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, manifest-only change) clean.
