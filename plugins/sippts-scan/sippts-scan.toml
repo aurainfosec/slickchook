@@ -1,0 +1,96 @@
+name = "sippts-scan"
+container = "slickchook-plugin/sippts-scan:local"
+description = "Discovers and fingerprints SIP (VoIP) services on one authorized target using sippts's real, actively maintained scan module (Pepelux/sippts, the modern successor to SIPVicious). Sends one or more SIP requests to the target and reports what responds, optionally identifying the specific PBX/softswitch/device implementation (fingerprint) and any known CVEs associated with it (cve, matched against sippts's own bundled CVE reference data). Uses plain UDP/TCP/TLS sockets, not raw sockets - confirmed directly from sipscan.py's own source, not assumed - so this plugin needs no elevated privilege or capability at all. method controls what kind of SIP request is sent and is a real intrusiveness choice, not just a technical detail: the default (options) is a standard capability-check every real SIP client performs routinely and is the quietest choice; register actually attempts a SIP registration against the target (a real, if usually harmless, protocol action beyond passive discovery); invite attempts real call setup, which can cause a target phone/softphone to actually ring - only use register or invite deliberately, with the same authorization awareness this fleet's other higher-sensitivity techniques already require. Only a single target host/IP is exposed here (sippts itself also supports scanning a whole file of hosts/ranges, and randomizing that order, neither of which is exposed - this fleet's convention is one authorized target per plugin call). Scanning a large port range (rport=all is every port 1-65536) against a single host with a high thread count can take a long time and may need a correspondingly larger timeout_seconds than this plugin's own default."
+fixed_args = ["scan"]
+
+[[options]]
+name = "target"
+description = "Authorized hostname or IP address to scan."
+required = true
+flag = "-i"
+
+[[options]]
+name = "rport"
+description = "Port(s) to scan: a single port, a comma-separated list, a range like 5060-5080, or 'all' for every port 1-65536. Default 5060."
+required = false
+flag = "-r"
+
+[[options]]
+name = "protocol"
+description = "Transport protocol: udp, tcp, tls, or all. Default udp."
+required = false
+flag = "-p"
+
+[[options]]
+name = "proxy"
+description = "Send through an outbound SIP proxy instead of directly to the target, as ip or ip:port."
+required = false
+flag = "-proxy"
+
+[[options]]
+name = "method"
+description = "SIP method to send: options (default, quietest - a routine capability check), register (a real registration attempt), or invite (real call setup - can cause the target to actually ring). See this plugin's own description for the real intrusiveness difference between these."
+required = false
+flag = "-m"
+
+[[options]]
+name = "domain"
+description = "SIP domain to use in headers instead of the target's own address."
+required = false
+flag = "-d"
+
+[[options]]
+name = "user_agent"
+description = "Custom User-Agent header. Default 'pplsip', sippts's own default value - a distinctive string some targets may already recognize as scan traffic; set a different value to blend in with real client traffic instead."
+required = false
+flag = "-ua"
+
+[[options]]
+name = "from_user"
+description = "From-header user part. Default 100 (sippts's own default)."
+required = false
+flag = "-fu"
+
+[[options]]
+name = "to_user"
+description = "To-header user part. Default 100 (sippts's own default)."
+required = false
+flag = "-tu"
+
+[[options]]
+name = "fingerprint"
+description = "Try to identify the specific SIP implementation/vendor from the response."
+required = false
+flag = "-fp"
+
+[[options]]
+name = "cve"
+description = "Cross-reference the identified implementation against sippts's own bundled CVE reference data and report any matches."
+required = false
+flag = "-cve"
+
+[[options]]
+name = "ping"
+description = "Ping the host before scanning it."
+required = false
+flag = "-ping"
+
+[[options]]
+name = "threads"
+description = "Number of concurrent threads. Default 200 (sippts's own default) - mostly relevant when scanning a wide port range; lower it for a quieter footprint."
+required = false
+flag = "-th"
+
+[[options]]
+name = "timeout"
+description = "Socket timeout in seconds. Default 5 (sippts's own default)."
+required = false
+flag = "-t"
+
+[docker]
+network = "bridge"
+memory = "256m"
+cpus = "1"
+pids_limit = 512
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
