@@ -12,15 +12,12 @@ FROM aquasec/trivy:0.74.0
 RUN trivy image --cache-dir /opt/trivy-db-template --download-db-only \
     && trivy image --cache-dir /opt/trivy-db-template --download-java-db-only
 
-# Trivy's own scan cache (recording per-run analysis results, distinct
-# from the read-mostly vulnerability DB) is stored in the same
-# --cache-dir - confirmed from its own docs, not assumed. This fleet's
-# containers always run --read-only, so the baked-in template above
-# can't be written to directly at runtime. entrypoint.sh copies it into
-# writable tmpfs on every run instead - the same pattern already used by
-# the jwt-analyzer plugin for a different read-only-filesystem
-# constraint (a tool needing a second, writable invocation of state
-# baked in at build time).
-COPY entrypoint.sh /usr/local/bin/slickchook-trivy-entrypoint.sh
-RUN chmod 0555 /usr/local/bin/slickchook-trivy-entrypoint.sh
-ENTRYPOINT ["/usr/local/bin/slickchook-trivy-entrypoint.sh"]
+# Confirmed live: the baked-in template above is a real 2.7GB (1.3GB DB +
+# 1.4GB Java DB) - too large to copy into tmpfs on every run without a
+# heavy memory/latency cost. Trivy's own scan cache (the only part that
+# actually needs to be writable, distinct from the read-mostly DB
+# itself) has a documented in-memory backend (--cache-backend memory,
+# set in this plugin's fixed_args) - using it means --cache-dir can
+# point directly at this read-only baked-in template with no copy step
+# and no wrapper entrypoint needed at all.
+ENTRYPOINT ["trivy"]
