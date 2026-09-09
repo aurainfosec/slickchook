@@ -359,3 +359,53 @@
   deployed host.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Added the `katana-headless` plugin, a companion to the existing
+  `katana` plugin (which is deliberately scoped to non-headless HTTP
+  crawling only) enabling Katana's real Chromium-based headless
+  crawling engine - genuinely different functionality, not just a
+  slower version of the same thing: a real browser executes each
+  page's JavaScript, discovering endpoints/content that only exist
+  after client-side rendering, and (with `xhr_extraction`) capturing
+  the actual dynamic XHR/fetch calls a page makes at runtime - dynamic
+  behavior neither the plain `katana` plugin nor `gowitness`'s
+  screenshot capture can see.
+  Resolved the two things the plain `katana` plugin's own description
+  had explicitly flagged as unverified, by reading Katana's real source
+  (`pkg/engine/hybrid/hybrid.go`) rather than its docs: (1) without an
+  explicit system-chrome path, Katana's headless engine (go-rod) falls
+  back to auto-downloading its own Chromium build from the network on
+  first use - since every plugin run here is a fresh container, that
+  would mean a real network download attempt on every single run, so
+  `-system-chrome` is unconditionally set in `fixed_args`, forcing it to
+  use the Chromium already baked into the official image (confirmed via
+  its own real Dockerfile: Alpine's `apk add chromium`) via go-rod's own
+  standard-path lookup instead; (2) Chrome's own internal process
+  sandbox needs privileges this fleet's containers deliberately don't
+  have - confirmed `-no-sandbox` maps directly to Chrome's real
+  `--no-sandbox` flag and is required for headless mode to start at all
+  here, so it's also unconditionally set. Also confirmed from source
+  that Katana itself errors outright if `-no-sandbox`/`-system-chrome-path`
+  are set without headless (or hybrid) mode also enabled - since headless
+  mode is unconditionally set here too, this can never occur through
+  this plugin.
+  Deliberately does not expose `automatic_form_fill`: confirmed from
+  Katana's own source comment that it is explicitly disabled/ignored
+  for headless navigation upstream ("incorrect implementation... should
+  be handled via headless actions within the page context") - a real,
+  confirmed upstream limitation, not an oversight on this plugin's part.
+  Sized `/dev/shm` well above Docker's small 64 MiB default in this
+  plugin's own docker policy - a well-known real headless-Chrome crash
+  cause (heavy inter-process shared-memory use between renderer
+  processes) that this plugin has no other way to work around, since it
+  doesn't expose Katana's raw `-headless-options` passthrough for a
+  `--disable-dev-shm-usage`-style flag instead.
+  `auto_login` performs a real, live authenticated action against the
+  target - the same test-only, retained-in-run-history caution this
+  fleet's `medusa` plugin already documents applies here too.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access, matching how every other plugin this session has been
+  verified: build/install/live-test happens after merge, on the real
+  deployed host.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
