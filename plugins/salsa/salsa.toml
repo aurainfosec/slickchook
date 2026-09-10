@@ -1,0 +1,114 @@
+name = "salsa"
+container = "slickchook-plugin/salsa:local"
+description = "Detects and enumerates an exposed Salesforce Aura endpoint (Lightning Experience/Community/Experience Cloud) on one authorized target, surfacing what data a guest or authenticated user can actually read - a real, well-documented misconfiguration class responsible for several public Salesforce data-leak disclosures. Uses cosad3s/salsa, pinned to its current real release (salsa-1.0.1) - confirmed live this is a small, single-maintainer, explicitly 'fully experimental' project (its own README's words), not an industry-standard tool like most of this fleet's other plugins; treat findings with correspondingly more scrutiny before relying on them. Deliberately, permanently scoped to read-only enumeration: salsa's own --update and --create flags are real, live data-modification actions against the target Salesforce org (its own README: 'WARNING: will inject data in the app!') - confirmed from source these are the only two code paths in the whole tool that ever write anything, and neither is exposed here at all, not just discouraged. always dumps whatever records it can read to /artifacts/dump as JSON (--dump --output, always set in fixed_args) - this is the actual payoff of running this plugin, since that's the real leaked data. Also confirmed from source a real, easy-to-miss gotcha fixed here: salsa's bundled logging config always writes a rolling log file relative to its own working directory on every run, regardless of any option set here - redirected to /artifacts (via a JVM -Dapplication.home property, not a plugin option) so it lands as a real, retrievable artifact carrying the same run narrative visible on stdout, rather than failing under this fleet's read-only containers. At least one of typesapi/typesintrospection/typeswordlist (or an explicit types list) is generally needed to actually discover any object types at all, matching salsa's own documented usage. username/password/sid/token enable authenticated enumeration (seeing what a real logged-in user, not just a guest, can access) - real credentials against real infrastructure, the same test-only, retained-in-run-history caution this fleet's medusa plugin already documents applies here too, even though nothing here modifies data."
+fixed_args = ["--dump", "--output", "/artifacts/dump"]
+
+[[options]]
+name = "target"
+description = "Authorized Salesforce instance URL to scan, e.g. https://example.my.salesforce.com or a Community/Experience Cloud site URL."
+required = true
+flag = "-t"
+
+[[options]]
+name = "typesapi"
+description = "Discover object types by harvesting them live from the target's own APIs. The most commonly useful discovery method - see salsa's own README examples."
+required = false
+flag = "--typesapi"
+
+[[options]]
+name = "typesintrospection"
+description = "Discover object types via Salesforce package introspection. Slower to start ('warming up') than typesapi."
+required = false
+flag = "--typesintrospection"
+
+[[options]]
+name = "typeswordlist"
+description = "Discover object types from salsa's own bundled internal wordlist, independent of what the target itself exposes."
+required = false
+flag = "--typeswordlist"
+
+[[options]]
+name = "types"
+description = "Comma-separated specific object type(s) to target, instead of or narrowing the discovery methods above."
+required = false
+flag = "--types"
+
+[[options]]
+name = "custom"
+description = "Only target custom object types (names ending in __c), skipping standard Salesforce object types entirely."
+required = false
+flag = "--custom"
+
+[[options]]
+name = "record_id"
+description = "Look up one specific record by its Salesforce record ID, instead of enumerating by type."
+required = false
+flag = "--id"
+
+[[options]]
+name = "bruteforce"
+description = "Enumerate sequential Salesforce record IDs near the given record_id - a real, documented technique against Salesforce's own sequential ID scheme. Read-only (looking up records, not modifying them), but noisier than a single lookup."
+required = false
+flag = "--bruteforce"
+
+[[options]]
+name = "path"
+description = "Force a specific base path for the Aura endpoint instead of letting salsa auto-detect it."
+required = false
+flag = "--path"
+
+[[options]]
+name = "app"
+description = "Force a specific custom Aura app name instead of letting salsa auto-detect it."
+required = false
+flag = "--app"
+
+[[options]]
+name = "user_agent"
+description = "Custom User-Agent header for every request."
+required = false
+flag = "--ua"
+
+[[options]]
+name = "username"
+description = "Username for authenticated enumeration (seeing what a real logged-in user can access, not just a guest). Test-only credential, retained in run history - the same caution this fleet's medusa plugin already documents applies here too."
+required = false
+flag = "-u"
+
+[[options]]
+name = "password"
+description = "Password paired with username. Same test-only, retained-in-run-history caution as username."
+required = false
+flag = "-p"
+
+[[options]]
+name = "sid"
+description = "An existing Salesforce SID session cookie value, as an alternative to username/password. Same test-only, retained-in-run-history caution."
+required = false
+flag = "--sid"
+
+[[options]]
+name = "token"
+description = "An existing Aura token, as an alternative to username/password. Same test-only, retained-in-run-history caution."
+required = false
+flag = "--token"
+
+[[options]]
+name = "force"
+description = "Continue scanning even if salsa's own Aura-endpoint detection reports an incoherent or negative result, instead of stopping immediately."
+required = false
+flag = "--force"
+
+[[options]]
+name = "debug"
+description = "Increase salsa's own log verbosity to DEBUG."
+required = false
+flag = "--debug"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]

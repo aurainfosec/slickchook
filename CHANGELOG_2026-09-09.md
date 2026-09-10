@@ -564,3 +564,41 @@
   precedent of most other wrapped-binary plugins in this fleet.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, manifest/Dockerfile-only change) clean.
+
+- Added the `salsa` plugin, detecting and enumerating an exposed
+  Salesforce Aura (Lightning/Community/Experience Cloud) endpoint on one
+  authorized target - a real, well-documented misconfiguration class
+  responsible for several public Salesforce data-leak disclosures.
+  Uses `cosad3s/salsa`, pinned to its current real release
+  (`salsa-1.0.1` - confirmed live master's few commits past this tag are
+  only CI/release-plumbing changes, not real feature work). Documented
+  honestly, per direct discussion before building: this is a small,
+  single-maintainer, explicitly "fully experimental" project by its own
+  README's own words - a real capability gap this fleet didn't have
+  coverage for, but a meaningfully less mature tool choice than most of
+  this session's other plugins.
+  Deliberately, permanently scoped to read-only enumeration, per direct
+  request: read the real source (`Scanner.java`) to confirm `--update`
+  and `--create` (real, live data-modification actions against the
+  target Salesforce org - the tool's own README: "WARNING: will inject
+  data in the app!") are the *only* two code paths in the entire tool
+  that ever write anything - neither is exposed here at all, not just
+  discouraged.
+  Found and fixed a real gotcha before ever building the image, from
+  reading source rather than assuming: salsa's bundled `logback.xml`
+  always writes a rolling log file relative to its own working
+  directory on *every* run, regardless of any option set - which would
+  fail under this fleet's always-read-only containers. Fixed by setting
+  the `application.home` JVM system property to `/artifacts` (not a
+  plugin option - baked into the Dockerfile's own `ENTRYPOINT`), turning
+  what would otherwise be a crash into a real, retrievable artifact
+  carrying the same run narrative already visible on stdout.
+  `username`/`password`/`sid`/`token` (for authenticated, still
+  read-only enumeration) carry the same test-only, retained-in-run-
+  history caution this fleet's `medusa` plugin already documents.
+  No Docker build/live verification yet - this sandbox has no `docker`
+  socket access, matching how every other plugin this session has been
+  verified: build/install/live-test happens after merge, on the real
+  deployed host.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
