@@ -1,6 +1,6 @@
 name = "testssl"
 container = "drwetter/testssl.sh:latest"
-description = "Runs testssl.sh against a single TLS endpoint. Provide target as a hostname, IP address, URL, or host:port value. The MCP response includes a bounded stdout/stderr preview plus artifact paths. Full stdout, stderr, a pretty JSON report, and an HTML report are stored under the run artifact directory. vulnerable_only narrows the full ~900s battery to just the vulnerability checks; sneaky and ids_friendly are testssl's own built-in network-evasion options."
+description = "Runs testssl.sh against a single TLS endpoint. Provide target as a hostname, IP address, URL, or host:port value. The MCP response includes a bounded stdout/stderr preview plus artifact paths. Full stdout, stderr, a pretty JSON report, and an HTML report are stored under the run artifact directory. vulnerable_only narrows the full ~900s battery to just the vulnerability checks; sneaky and ids_friendly are testssl's own built-in network-evasion options. To build a protocol-support table (which of SSLv2/SSLv3/TLS1.0/TLS1.1/TLS1.2/TLS1.3 the server offers): read result.json and look for entries with id SSLv2, SSLv3, TLS1 (this is TLS 1.0), TLS1_1, TLS1_2, TLS1_3 - each has a finding field of exactly 'offered' or 'not offered' (confirmed directly from testssl.sh's own source, not assumed). These six entries are always produced by the default full battery (not just with fast or vulnerable_only) and need no extra option here. To build a weak-cipher-component table (key exchange, encryption algorithm, mode, MAC/HMAC actually negotiated) needs each_cipher or cipher_per_proto set - the default battery alone does not include the detailed per-cipher-suite listing this requires, confirmed directly from testssl.sh's own source: it only reports broad historical cipher-category buckets (NULL/EXPORT/LOW/3DES/etc.) by default, not a breakdown by individual key-exchange/encryption/mode/MAC. With either option set, result.json gains one entry per accepted cipher suite, id cipher_<hexcode>, whose finding is a formatted text line (not separate structured fields) combining the cipher's OpenSSL/RFC name with Kx=<key exchange>, Enc=<algorithm>(<bits>), and an Export flag - parse that text to classify each row: Kx=DHE followed by a bit-length under 3072 (testssl appends the actual negotiated Diffie-Hellman size directly after Kx=DHE, e.g. 'Kx=DHE 1024') is the DHE (1024) or DHE (<3072) row depending on the exact number; Kx=RSA (a cipher name with no DHE/ECDHE prefix, i.e. static RSA key exchange, no forward secrecy) is the RSA row; Enc=RC4(...) is the RC4 row; Enc=3DES(...) or Enc=DES(...) is the 3DES row; Enc=AES(128) is the AES-128 row (distinct from AES(256), which these tables don't flag); Enc=Camellia(...) is the Camellia row; Enc=CHACHA20(...) is the ChaCha20-Poly1305 row (flagged here for a specific compliance framework's own approved-algorithm list, not because it's cryptographically weak - don't editorialize that it's actually fine elsewhere). CBC mode and MD5/SHA1 MAC aren't given their own labeled field either - they're only visible in the cipher's own name string: a name with no GCM/CCM/POLY1305/CHACHA20 marker is a CBC-mode suite (standard OpenSSL naming convention), and its own trailing -MD5/-SHA (SHA1) suffix names the MAC directly (-SHA256/-SHA384 suffixes are not SHA1 and shouldn't be flagged as such). cipher_per_proto additionally separates this listing by protocol version if that granularity is ever needed; each_cipher is the plain unified list and is usually sufficient. Either one meaningfully increases scan time (testing every locally-known cipher suite against the target, not just the default's own smaller battery) - only ask for it when the actual weak-cipher-component table is needed, not as a default."
 fixed_args = [
   "--warnings",
   "batch",
@@ -49,10 +49,25 @@ description = "Set a custom user-agent instead of testssl's own default string."
 required = false
 flag = "--user-agent"
 
+[[options]]
+name = "each_cipher"
+description = "Also test every locally-known cipher suite individually against the target, producing one detailed cipher_<hexcode> finding per accepted suite in result.json - needed to build a weak-cipher-component table (key exchange, encryption algorithm, mode, MAC). See this plugin's own description for exactly how to parse those findings. Meaningfully increases scan time; only set this when that level of detail is actually needed."
+required = false
+flag = "--each-cipher"
+
+[[options]]
+name = "cipher_per_proto"
+description = "Like each_cipher, but additionally separates the per-cipher-suite listing by protocol version. Use instead of each_cipher only if it matters which specific protocol a given weak cipher was offered under."
+required = false
+flag = "--cipher-per-proto"
+
 [docker]
 network = "bridge"
 memory = "1g"
 cpus = "1"
 pids_limit = 256
-timeout_seconds = 900
+# Raised from the default battery's own ~900s budget to accommodate
+# each_cipher/cipher_per_proto, which test every locally-known cipher
+# suite individually and can meaningfully extend a run.
+timeout_seconds = 1500
 tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
