@@ -20,3 +20,26 @@
   Manifest-only change, no Dockerfile/image change. Verified: `cargo
   build --locked --release --bins` and `cargo test --lib` (12/12,
   including the existing `scans_testssl_plugin_manifest` test) clean.
+
+- Documented the `testssl` plugin's origin-IP WAF/CDN bypass false
+  negative, per direct request: if target resolves to a CDN/WAF (e.g.
+  Cloudflare) rather than the real origin server, this plugin only
+  ever tests the CDN/WAF's own TLS stack - a real weakness in the
+  origin's actual TLS configuration is a silent false negative, not
+  evidence the origin itself is secure. Added a new `origin_ip` option
+  (testssl's own `--ip` flag) so the client can connect directly to a
+  known origin IP while keeping `target` as the real hostname, which
+  keeps SNI/Host set correctly ("SNI spoofing") and bypasses the
+  CDN/WAF's routing entirely. Confirmed the mechanism directly from
+  testssl.sh's own source before writing this: SNI is only cleared
+  when the target itself is a bare IP with no hostname at all
+  (`determine_ip_addresses()`'s `elif is_ipv4addr "$NODE"` branch,
+  which sets `SNI=""`) - when `--ip`/`CMDLINE_IP` is combined with a
+  real hostname target, that branch is never taken, so SNI/Host stay
+  correct and the origin server serves its own real certificate and
+  config to whoever connects directly to it. This plugin cannot
+  discover a candidate origin IP itself - `origin_ip` only helps once
+  one is already known from other recon.
+  Manifest-only change, no Dockerfile/image change. Verified: `cargo
+  build --locked --release --bins` and `cargo test --lib` (12/12,
+  including the existing `scans_testssl_plugin_manifest` test) clean.
