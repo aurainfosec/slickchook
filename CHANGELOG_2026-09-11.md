@@ -43,3 +43,13 @@
   Manifest-only change, no Dockerfile/image change. Verified: `cargo
   build --locked --release --bins` and `cargo test --lib` (12/12,
   including the existing `scans_testssl_plugin_manifest` test) clean.
+
+- Added guidance to `SKILL.md` §4, per direct request: when compiling
+  the end-of-engagement summary, derive a tools/methodology-used list
+  from `list_runs_by_target`'s distinct `plugin` values per in-scope
+  target, rather than relying on the current conversation's own memory
+  of what it invoked - this also correctly captures runs from an
+  earlier session or a different conversation entirely. Kept
+  plugin-agnostic per existing practice (no plugin names hardcoded);
+  the exact tool used is just whatever `list_runs_by_target` reports.
+  Documentation-only change, no code.

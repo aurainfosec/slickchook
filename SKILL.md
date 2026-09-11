@@ -408,6 +408,13 @@ covering, per in-scope target:
   gap list matters as much as the findings themselves.
 - The full list of `run_id`s produced, so the artifact collection in §5 is
   reproducible/auditable independent of this summary.
+- A tools/methodology-used list: for each in-scope target, call
+  `list_runs_by_target` and take the distinct `plugin` values across every
+  returned run. This is the authoritative record of what actually ran
+  against that target — including runs from an earlier session or a
+  different conversation entirely — rather than relying on this
+  conversation's own memory of what it invoked. Report it alongside the
+  findings, not as a substitute for the run-by-run detail above.
 
 ## 5. Collecting every artifact for in-scope targets
 
