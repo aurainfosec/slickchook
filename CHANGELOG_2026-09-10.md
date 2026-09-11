@@ -86,6 +86,14 @@
      out directly, e.g. `_CBC_`, `_SHA`) rather than from the
      encryption-algorithm column, and to treat an `EDH` key-exchange
      column as the report's "DHE" row.
+  Also added, per direct request: guidance for rendering the
+  protocol-support table as pass/fail marks instead of raw
+  offered/not-offered text, per NIST SP 800-52 Rev. 2 (which
+  deprecates SSLv2/SSLv3/TLS 1.0/TLS 1.1 and treats TLS 1.2/TLS 1.3 as
+  currently secure): a cross when a deprecated protocol is offered (or
+  a currently-secure protocol is not offered), a tick when a
+  deprecated protocol is not offered (or a currently-secure protocol
+  is offered).
   Manifest-only change, no Dockerfile/image change. Verified: `cargo
   build --locked --release --bins` and `cargo test --lib` (12/12)
   clean.
