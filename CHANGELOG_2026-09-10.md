@@ -45,3 +45,47 @@
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, including the existing dedicated
   `scans_testssl_plugin_manifest` test) clean.
+
+- Corrected the `testssl` plugin's documentation above, after a live
+  scan against a real target (following the redeploy of the previous
+  entry) caught two real errors in what had just shipped:
+  1. The claim that the six protocol findings "are always produced by
+     the default full battery... and need no extra option" turned out
+     to be false once `each_cipher` is also set. A real scan with
+     `each_cipher: true` came back with `protocols`, `vulnerabilities`,
+     `serverDefaults`, `fs`, `serverPreferences`, `browserSimulations`,
+     `rating`, and `grease` all completely empty - only `pretest` and
+     `cipherTests` had content. Traced this to testssl.sh's own
+     dispatch logic: `count_do_variables` counts how many `do_*` test
+     flags are set, and `set_scanning_defaults` (which turns on
+     `do_protocols`, `do_server_defaults`, `do_vulnerabilities`, etc.)
+     only runs when that count is exactly 0. `--each-cipher` sets
+     `do_allciphers=true` on its own, so the count is 1 and the rest of
+     the default battery never runs. The manifest now documents that
+     building the full compliance report needs **two separate calls**:
+     one plain call (no `each_cipher`/`cipher_per_proto`) for the
+     protocol table, and one with `each_cipher` (or `cipher_per_proto`)
+     set for the cipher-detail table.
+  2. The claim that each cipher finding's text contains literal
+     `Kx=`/`Enc=` substrings was also false - testssl's own
+     `neat_list()` formatting function explicitly strips those
+     prefixes before building the line. The real format (confirmed
+     against the actual JSON from the live scan above) is a plain
+     space-padded columnar line with no field prefixes: hexcode, the
+     OpenSSL cipher name, the key-exchange column, the encryption
+     algorithm alone (no parentheses or folded-in bit count), the bit
+     strength as its own column, then the RFC-style name last - e.g.
+     `x35     AES256-SHA                        RSA        AES
+     256      TLS_RSA_WITH_AES_256_CBC_SHA`. This also caught a third,
+     smaller error the same live data exposed: testssl's own
+     key-exchange label for ephemeral/forward-secret Diffie-Hellman is
+     `EDH`, not `DHE` as the previous entry assumed - confirmed from
+     source (`kx[i] == "Kx=EDH"` guards used throughout testssl.sh).
+     The manifest now tells the client to read CBC mode and MD5/SHA1
+     MAC from the trailing RFC-style name column (which spells them
+     out directly, e.g. `_CBC_`, `_SHA`) rather than from the
+     encryption-algorithm column, and to treat an `EDH` key-exchange
+     column as the report's "DHE" row.
+  Manifest-only change, no Dockerfile/image change. Verified: `cargo
+  build --locked --release --bins` and `cargo test --lib` (12/12)
+  clean.
