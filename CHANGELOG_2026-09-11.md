@@ -43,3 +43,38 @@
   Manifest-only change, no Dockerfile/image change. Verified: `cargo
   build --locked --release --bins` and `cargo test --lib` (12/12,
   including the existing `scans_testssl_plugin_manifest` test) clean.
+
+- Fixed `gowitness` silently producing zero screenshot artifacts, per a
+  direct report. Reproduced live: `run_plugin` against
+  `https://scanme.nmap.org` came back `status: success`, `exit_code:
+  0`, but the only artifacts were `stdout.txt`/`stderr.txt` - no
+  screenshot file at all, and stdout was completely empty (no
+  `result 🤖` success line either, meaning the capture itself never
+  completed). The only stderr line was an unrelated warning about no
+  `--write-*` output writers being configured - a red herring: per
+  gowitness's own source (`cmd/scan.go`'s help text and
+  `pkg/runner/runner.go`), those writers control optional metadata
+  persistence (db/csv/jsonl), not the screenshot file, which is written
+  independently whenever a capture actually succeeds.
+  The real problem: gowitness only logs a per-target capture failure
+  (Chrome error, DNS failure, navigation timeout, etc.) when
+  `--log-scan-errors` is set - confirmed directly from source
+  (`runner.Run()`'s `if run.options.Logging.LogScanErrors { ...
+  log.Error(...) }` guards on every failure path), and that flag was
+  never being passed. Without it, a failed capture is completely
+  silent: no stderr, no per-target log line, and the process still
+  exits 0 - indistinguishable from "nothing to report" without the real
+  error text. Added `--log-scan-errors` as an always-on `fixed_args`
+  entry (never a reason to want failures hidden) and documented the
+  gap directly in the manifest: a `success`/`exit_code: 0` result is
+  not proof a screenshot was produced, the artifacts list must be
+  checked for an actual image file, and stderr should be checked for
+  the real reason before assuming a site is simply unreachable or
+  blocking automation.
+  This is a visibility fix, not yet a root-cause fix for why the actual
+  capture is failing against this target - that still needs the real
+  error text `--log-scan-errors` will now surface, from a redeploy and
+  rerun.
+  Manifest-only change, no Dockerfile/image change. Verified: `cargo
+  build --locked --release --bins` and `cargo test --lib` (12/12)
+  clean.
