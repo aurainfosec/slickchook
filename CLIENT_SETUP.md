@@ -107,6 +107,31 @@ reloading just because a plugin was added or changed. It only needs
 reloading if `SKILL.md` itself changes (a new phase, a new scope-discipline
 category, etc.) or if you're setting up a new client for the first time.
 
+There's no one path, because there's no one client — each one has its own
+place for standing instructions, and only some of them are even a file on
+disk. A few common ones, as of this writing (check that client's current
+docs if this has changed):
+
+- **Claude Code**: a `CLAUDE.md` file, auto-loaded at session start. Put
+  it at `~/.claude/CLAUDE.md` (user-level — applies everywhere this client
+  runs, the natural choice since `SKILL.md` is plugin-agnostic methodology,
+  not something scoped to one project) or `<project-root>/CLAUDE.md` if
+  you only want it active while working in one particular repo/workspace.
+- **Cursor**: a Project Rule under `.cursor/rules/`, e.g.
+  `.cursor/rules/slickchook-skill.mdc`, with `alwaysApply: true` in its
+  frontmatter so it's always in context rather than fetched on demand. The
+  older single-file `.cursorrules` at the project root still works too.
+- **Windsurf**: `.windsurfrules` at the project root.
+- **GitHub Copilot Chat**: `.github/copilot-instructions.md` at the
+  repository root.
+- **Claude Desktop / claude.ai Projects**: no file path — this is a text
+  field ("Custom instructions") in a Project's settings in the web/desktop
+  UI. `claude_desktop_config.json` is unrelated to this step; that file
+  only registers MCP servers, it doesn't carry instructions.
+- **A custom client built directly on the Claude API**: no file either —
+  pass `SKILL.md`'s content as (or appended to) the `system` parameter of
+  the Messages API call.
+
 ## 5. Refresh the plugin list after a redeploy
 
 A running MCP client session caches its tool list from the `initialize` /
