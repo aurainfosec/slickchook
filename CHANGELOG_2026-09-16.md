@@ -18,3 +18,25 @@
   rather than point at a plugin that no longer exists.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+
+- Reformatted the `testssl` plugin's `description` field for
+  readability, per direct request after a broader "make our
+  documentation more concise and clearer" discussion identified it as
+  the single worst offender fleet-wide: a 6,931-character block of
+  unbroken prose on one line, grown from several documentation PRs
+  this week. Converted it to a TOML multi-line string broken into
+  eight clearly-labeled paragraphs (general usage, the origin-IP
+  false-negative/origin_ip explanation, the two-separate-calls
+  requirement, call 1's protocol-table parsing rule, the NIST
+  tick/cross rendering rule, call 2's cipher-table format, the
+  per-row classification rules, and the cipher_per_proto/each_cipher
+  performance note) instead of one continuous paragraph - same content,
+  restructured for scannability, nothing added or removed. Confirmed
+  via `tomllib`/`cargo test` that the parsed string value is unchanged
+  in substance (6,891 characters, no stray trailing newline from the
+  multi-line syntax, one clean paragraph break between each section).
+  No other plugin was touched in this pass - it was scoped to this one
+  file as a first test case before deciding whether to repeat it
+  elsewhere.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, including `scans_testssl_plugin_manifest`) clean.
