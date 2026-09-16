@@ -40,3 +40,30 @@
   elsewhere.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12, including `scans_testssl_plugin_manifest`) clean.
+
+- Applied the same readability treatment to the rest of the fleet's
+  worst-offending `description` fields, per direct request, now that
+  the `testssl` test case above was confirmed to work end-to-end
+  (redeployed, byte-identical content confirmed via `list_plugins`):
+  `sippts-dcrack`, `jwt-analyzer`, `ike-scan`, `dehashed`,
+  `cloud-storage-enum`, `theharvester`, `nuclei`, `wpscan`, and
+  `trivy-image`. Each was a single unbroken paragraph (2,566-3,305
+  characters after reformatting; roughly the same before) - converted
+  each to a TOML multi-line string broken into labeled sections
+  matching that plugin's own natural topic boundaries (e.g. `wpscan`'s
+  API-token requirement / startup-cost / enumerate-default /
+  performance-history / footprint-options sections; `nuclei`'s
+  normal-mode / DAST-mode / OOB-SSRF / fuzz-tuning sections).
+  Same content throughout, restructured for scannability - nothing
+  added or removed. A few of these (`sippts-dcrack`, `dehashed`)
+  previously escaped embedded double quotes (`\"...\"`) since they were
+  single-line TOML basic strings; those are now plain unescaped `"`
+  inside the multi-line string, which is valid TOML and reads more
+  naturally - confirmed via `tomllib` that the parsed string values
+  match the original content (accounting for the removed backslashes)
+  before considering this done.
+  No other plugin was touched in this batch.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12, including `scans_network_plugin_manifests`, which
+  parses every manifest in the fleet, not just the ones touched here)
+  clean.
