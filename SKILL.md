@@ -461,3 +461,56 @@ take it as-is, in whatever shape it's actually in. Check its own
 description for how to keep the result scoped to the named engagement
 (dropping anything out-of-scope that happened to appear in raw tool
 output) before handing it off.
+
+## 6. Building a visual attack-surface map
+
+When the user wants a visual view of a target's attack surface — for a
+report, a debrief, or just to see the shape of what's been found — build
+one as a published Artifact rather than another wall of text. This needs
+no dedicated tool: it's entirely composable from `list_runs_by_target` /
+`list_run_artifacts` / `read_artifact`, the same calls §5 already uses.
+Treat it as an on-request reporting output, not a default deliverable at
+the end of every engagement — build it when asked, scoped to the
+target(s) actually asked about.
+
+1. Gather: for each in-scope target (and any subdomains/hosts already
+   discovered for it), call `list_runs_by_target`, then
+   `list_run_artifacts` + `read_artifact` for whichever runs actually
+   carry structural data — resolved IPs/subdomains, open ports and their
+   services, TLS posture, and web-layer findings (content discovery,
+   vulnerability scans, screenshots). Skip a run that wouldn't add a new
+   node or edge (a duplicate retry of the same plugin, a run confirming
+   something already represented) rather than trying to include every
+   run ever recorded.
+2. Structure the data as a tree before drawing anything: target domain →
+   resolved IPs/subdomains → open ports/services → web-layer findings.
+   Distinguish four kinds of node/edge consistently — this distinction is
+   what makes the result trustworthy rather than just decorative:
+   - **confirmed** — actively found live right now (an open port, a
+     resolved A record, a detected technology).
+   - **tested negative / historical** — actually checked and came back
+     empty, or a passive/historical signal (a closed port, a stale
+     passive-DNS record, a Wayback-only path) — show this as evidence of
+     coverage, don't omit it just because there was no positive hit.
+   - **notable / lead** — unusual or unexplained, worth a follow-up look
+     but not itself a confirmed problem (an oddly-named subdomain, an
+     asset cross-referencing another organization).
+   - **flagged** — needs live re-verification before anyone acts on it (a
+     historical VCS-metadata path, a finding that might just reflect a
+     CDN/WAF's own edge rather than the real origin behind it — see the
+     origin-IP caveat some plugins document directly).
+3. When two or more independently-run plugins land on the same
+   underlying fact (a CDN/WAF fingerprint, a bot-protection response, a
+   blocked probe), call that out explicitly as one corroborated finding
+   rather than listing it several separate times — it's stronger evidence
+   than any single tool's result, and it explains why other tools may
+   have come back empty (filtered, not confirmed clean).
+4. Publish it as an HTML Artifact with inline SVG — a simple top-down
+   tree reads clearly and needs no library. Underneath the diagram,
+   include an evidence table mapping every node/finding back to its
+   source plugin, `run_id`, and date, so the diagram is auditable rather
+   than just a picture — this is what makes it usable as part of a real
+   report rather than a one-off illustration. Add a short caveats note:
+   flag anything historical/passive-DNS/Wayback-sourced as dated, and
+   name any tool that failed outright rather than silently omitting it
+   from consideration.
