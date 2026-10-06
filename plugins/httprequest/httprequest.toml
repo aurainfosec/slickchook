@@ -15,6 +15,8 @@ insecure skips TLS certificate verification entirely (curl's -k) - only use this
 
 basic_auth takes user:pass for HTTP Basic authentication - a real, live credential against real infrastructure, retained in this run's own history: the same test-only caution this fleet's medusa/trivy-image plugins already document for their own credential options applies here too.
 
+resolve is the origin-IP/CDN-bypass technique this fleet's testssl plugin already documents via its own origin_ip option, applied here via curl's real --resolve flag: it forces target's hostname:port to resolve to a specific IP instead of using real DNS, while the TLS SNI and the Host header both still carry the real hostname - letting a request reach a known origin server directly instead of whatever CDN/WAF/load-balancer that hostname's real DNS currently points at, without losing TLS certificate validation or vhost routing on the far end (both still key off the real hostname, not the IP). Confirmed directly from curl's own --help output before documenting this, not assumed: curl has no flag that sends an arbitrary SNI value independent of the address it actually connects to - only --resolve and --connect-to exist for redirecting a connection, and both keep SNI/Host tied to the original hostname. "Overriding SNI" in practice means this - changing where the connection physically goes while everything presented over it stays the same - not sending a mismatched SNI value, which real curl cannot do. The value is curl's own --resolve triple directly, not just a bare IP: host:port:address, where host:port must exactly match target's own hostname and port (e.g. target https://example.com needs resolve set to example.com:443:203.0.113.10) - curl silently ignores a --resolve entry that doesn't match rather than erroring, so a mismatch here fails quietly, not loudly.
+
 Output: the response's headers and body are always written to separate artifacts (response_headers.txt, response_body) rather than mixed together, since the body may be any content type including binary - stdout carries a short status/timing/size/content-type summary (curl's own -w write-out) so the common case doesn't need to open an artifact at all.\
 """
 fixed_args = [
@@ -72,6 +74,12 @@ name = "insecure"
 description = "Skip TLS certificate verification entirely. See this plugin's own description for when this is and isn't appropriate."
 required = false
 flag = "-k"
+
+[[options]]
+name = "resolve"
+description = "Force a specific IP for target's hostname:port instead of real DNS, while SNI/Host/certificate validation still use the real hostname - curl's own --resolve flag, the same origin-IP/CDN-bypass technique as testssl's origin_ip option. Value is the full host:port:address triple matching target exactly, e.g. 'example.com:443:203.0.113.10' for https://example.com - not just a bare IP. See this plugin's own description for why this is the real mechanism behind 'SNI override' (curl has no flag to send an arbitrary SNI value on its own)."
+required = false
+flag = "--resolve"
 
 [[options]]
 name = "timeout"

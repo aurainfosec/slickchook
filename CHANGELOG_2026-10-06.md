@@ -50,3 +50,33 @@
   building the image. Live verification (a real request against an
   authorized target) still pending redeploy, since this sandbox has no
   Docker access to build/run the actual image.
+
+- Added a `resolve` option to `httprequest`, per direct request for an
+  "SNI override" - implemented via curl's own `--resolve` flag, the
+  same origin-IP/CDN-bypass technique this fleet's `testssl` plugin
+  already documents via its own `origin_ip` option: force a specific
+  IP for `target`'s hostname:port instead of real DNS, while SNI/Host/
+  certificate validation still use the real hostname, reaching a known
+  origin server directly instead of whatever CDN/WAF/load-balancer
+  that hostname's DNS currently points at.
+  Checked curl's own `--help all` output directly in this sandbox
+  before documenting this, not assumed: curl has no flag that sends an
+  arbitrary SNI value independent of the address it actually connects
+  to - only `--resolve` and `--connect-to` exist for redirecting a
+  connection, and both keep SNI/Host tied to the original hostname.
+  Documented this precisely in the option's own description so a
+  client doesn't go looking for a literal "set SNI to an arbitrary
+  value" flag that doesn't exist: "SNI override" in practice means
+  changing where the connection physically goes while everything
+  presented over it (SNI, Host) stays the same.
+  The option's value is curl's own `--resolve` triple directly
+  (`host:port:address`), not just a bare IP like `testssl`'s
+  `origin_ip` - curl's flag needs the hostname and port spelled out
+  explicitly, unlike testssl's own `--ip`, which infers them from its
+  separately-provided target argument. Documented that `host:port`
+  must exactly match `target`'s own hostname and port, and that curl
+  silently ignores a non-matching `--resolve` entry rather than
+  erroring - a mismatch here fails quietly, not loudly.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean. Live verification (a real request using
+  `resolve` against an authorized target) still pending redeploy.
