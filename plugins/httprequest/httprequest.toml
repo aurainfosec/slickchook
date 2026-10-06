@@ -1,0 +1,88 @@
+name = "httprequest"
+container = "slickchook-plugin/httprequest:local"
+description = """
+Sends one HTTP(S) request to an authorized URL using any method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, etc.), via real curl. Fills the gap webfetch doesn't cover - webfetch only ever does a plain GET (via wget) for passive offline analysis. Use this for anything that needs a specific method, a request body, or custom headers: testing how an API endpoint actually behaves, following up on a route a content-discovery plugin surfaced (e.g. a POST route found by a crawler/brute-forcer) with a real, controlled request, or replaying a specific request shape.
+
+IMPORTANT - this can be a live, state-changing action, not just observation: unlike a passive fetch, POST/PUT/DELETE/PATCH (and sometimes GET, depending on the endpoint) can submit data, modify a resource, or delete something on the target. This is exactly the "performs a live action against a real service" category SKILL.md §0 requires explicit authorization/intent for - being in scope is not the same as this specific action being intended. Only send a non-GET request when that specific action is actually wanted; use method unset (or explicitly GET/HEAD) for passive observation.
+
+method sets the HTTP method. Leave unset for curl's own default behavior: GET normally, or POST automatically the moment data is also set (curl's standard behavior, not special-cased here) - set it explicitly for PUT, DELETE, PATCH, HEAD, OPTIONS, or any other verb.
+
+data is the request body, sent via curl's --data-raw rather than plain -d - this means the body is always sent exactly as given, even if it happens to start with an '@' or '+' character, which plain -d would otherwise misinterpret as "read the body from this local file/path" instead of sending it literally.
+
+headers accepts one or more custom headers at once, one "Name: Value" pair per line (e.g. a Content-Type line together with an Authorization or API-key line) - this fleet's schema only allows one value per declared option, so a small wrapper here turns this one multi-line blob into the repeated -H flags curl itself actually needs; see this plugin's own entrypoint for exactly how.
+
+insecure skips TLS certificate verification entirely (curl's -k) - only use this against a target whose certificate genuinely can't be validated for a known, legitimate reason (e.g. a self-signed internal test environment), never to silence a real validation failure against a target you don't already trust.
+
+basic_auth takes user:pass for HTTP Basic authentication - a real, live credential against real infrastructure, retained in this run's own history: the same test-only caution this fleet's medusa/trivy-image plugins already document for their own credential options applies here too.
+
+Output: the response's headers and body are always written to separate artifacts (response_headers.txt, response_body) rather than mixed together, since the body may be any content type including binary - stdout carries a short status/timing/size/content-type summary (curl's own -w write-out) so the common case doesn't need to open an artifact at all.\
+"""
+fixed_args = [
+  "-s",
+  "-S",
+  "-D", "/artifacts/response_headers.txt",
+  "-o", "/artifacts/response_body",
+  "-w", "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}s\nSIZE_DOWNLOAD:%{size_download} bytes\nCONTENT_TYPE:%{content_type}\nEFFECTIVE_URL:%{url_effective}\n",
+]
+
+[[arguments]]
+name = "target"
+description = "Authorized HTTP or HTTPS URL to request."
+required = true
+position = 1
+
+[[options]]
+name = "method"
+description = "HTTP method to use: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, or any other verb the target accepts. Leave unset for curl's own default (GET, or POST automatically once data is set). See this plugin's own description for the authorization implications of a non-GET method."
+required = false
+flag = "-X"
+
+[[options]]
+name = "data"
+description = "Request body to send. Sent via curl's --data-raw, so the content is always sent exactly as given, never reinterpreted as a local file reference even if it starts with '@' or '+'."
+required = false
+flag = "--data-raw"
+
+[[options]]
+name = "headers"
+description = "One or more custom headers, one 'Name: Value' pair per line (e.g. 'Content-Type: application/json' and 'Authorization: Bearer ...' together). See this plugin's own description for why multiple headers work this way."
+required = false
+flag = "--slickchook-headers"
+
+[[options]]
+name = "user_agent"
+description = "Set a custom user-agent instead of curl's own default string (which otherwise identifies itself plainly as curl/<version> on the wire)."
+required = false
+flag = "-A"
+
+[[options]]
+name = "basic_auth"
+description = "user:pass for HTTP Basic authentication. Test-only credential, retained in run history - see this plugin's own description."
+required = false
+flag = "-u"
+
+[[options]]
+name = "follow_redirects"
+description = "Follow HTTP redirects (3xx responses) instead of returning the redirect response itself."
+required = false
+flag = "-L"
+
+[[options]]
+name = "insecure"
+description = "Skip TLS certificate verification entirely. See this plugin's own description for when this is and isn't appropriate."
+required = false
+flag = "-k"
+
+[[options]]
+name = "timeout"
+description = "Maximum seconds for the whole request (connect + transfer) before giving up. Omit for curl's own default (no limit) - setting this is recommended to avoid a slow/unresponsive target holding the run open."
+required = false
+flag = "--max-time"
+
+[docker]
+network = "bridge"
+memory = "128m"
+cpus = "0.5"
+pids_limit = 32
+timeout_seconds = 60
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
