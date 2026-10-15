@@ -208,3 +208,35 @@
   (`claude mcp list` reporting `✔ Connected` with the `CA:TRUE` fix).
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean; `bash -n` on both modified scripts.
+- Fixed #132: three bundled plugins (`dnsx`, `feroxbuster`,
+  `cloud-storage-enum`) used BuildKit-only Dockerfile syntax
+  (`ARG TARGETARCH`, `COPY --chmod=...`), which silently breaks under
+  the legacy builder the `.deb`'s own declared dependency
+  (`docker.io | docker-ce`) resolves to on a plain Ubuntu host - `apt`
+  picks `docker.io`, which has no `buildx`. `ARG TARGETARCH` expands to
+  empty under the legacy builder (falling through `dnsx`/`feroxbuster`'s
+  architecture `case` to its unsupported branch) instead of failing
+  loudly, and `COPY --chmod` is rejected outright
+  (`cloud-storage-enum`). Both work fine with Docker Desktop or
+  `docker-ce` plus `buildx`, which is presumably how these images get
+  built during development - the failure is specific to the
+  installer's own deployment path, confirmed against the actual
+  Dockerfiles in this session, matching the issue's reproduction
+  exactly.
+  Fixed by detecting the architecture at build time instead of relying
+  on a BuildKit-populated build arg (`apk --print-arch`, mapped to the
+  release-asset naming each tool's upstream uses) for `dnsx` and
+  `feroxbuster`, and splitting `cloud-storage-enum`'s
+  `COPY --chmod=0644 fuzz.txt /opt/fuzz.txt` into a plain `COPY` plus
+  its own `RUN chmod 0644`.
+  Added a BuildKit-only-syntax caveat to `PLUGIN_WORKFLOW.md`'s "verify
+  locally" section so a future plugin doesn't reintroduce this same
+  class of bug.
+  Could not rebuild the actual container images to confirm end-to-end
+  (no Docker socket access in this environment) - the fix is a direct,
+  minimal application of the issue's own suggested patch, which its
+  author stated was tested against a real deployment (31 plugins
+  installing cleanly). Verified what can be verified here:
+  `cargo build --locked --release --bins` and `cargo test --lib`
+  (12/12) clean, including the manifest-scanning test that parses every
+  plugin directory.

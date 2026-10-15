@@ -82,6 +82,20 @@ source rather than assume from its docs, and test any wrapper logic
 (argument rewriting, config-file generation, etc.) directly against a
 stand-in in place of the real binary.
 
+If a `Dockerfile` is involved, avoid BuildKit-only syntax: `ARG
+TARGETARCH` and `COPY --chmod=...` are the two that have already caused a
+real, hard-to-reproduce failure (see `CHANGELOG_2026-10-15.md`'s
+BuildKit-only-features entry and the linked issue). The `.deb`'s declared
+dependency (`docker.io | docker-ce`) lets `apt` resolve `docker.io` on
+Ubuntu, which has no `buildx` and therefore runs the legacy builder -
+`ARG TARGETARCH` silently expands to empty instead of failing, and `COPY
+--chmod` is rejected outright. A plugin built and tested with Docker
+Desktop or `docker-ce` plus `buildx` (buildx is on by default there) will
+look completely fine locally and only break on the installer's own
+deployment path. Detect the architecture at build time instead (`apk
+--print-arch` for an Alpine base image), and split `COPY --chmod=...`
+into a plain `COPY` followed by its own `RUN chmod`.
+
 ## 3. Submit a pull request
 
 One logical change per PR. Include a changelog entry in the day's
