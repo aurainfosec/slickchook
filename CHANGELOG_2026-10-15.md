@@ -128,3 +128,25 @@
   stated as an explicit, up-front deployment assumption before.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean against the updated lockfile.
+- Fixed a redeploy that silently did nothing: after merging the SC-020
+  `rustls` fix above, running the normal
+  `cargo build && build-deb.sh && apt install ./dist/*.deb` redeploy
+  flow produced `slickchook is already the newest version (0.3.0)` with
+  `Upgrading: 0, Installing: 0` - `apt` compares the package's
+  `Version:` field, which `build-deb.sh` reads straight from
+  `Cargo.toml`, not file contents. The `rustls` bump only touched
+  `Cargo.lock`, so the rebuilt `.deb` had an identical version string
+  to what was already installed, and `apt` silently skipped
+  reinstalling it - the pre-fix binary was still running with no error
+  to signal it.
+  Bumped `Cargo.toml`'s `version` from `0.3.0` to `0.3.1` so this
+  redeploy actually registers as an upgrade, and added a paragraph to
+  `RUNNER.md`'s ".deb package" section explaining the mechanism (`apt`
+  decides "newer" purely by version-string comparison) and the
+  recovery step for next time this happens anyway
+  (`apt install --reinstall ./dist/slickchook_*.deb`).
+  Going forward, any change touching compiled code - including a
+  dependency-only `Cargo.lock` bump with no visible `Cargo.toml` diff
+  otherwise - needs its own version bump before cutting a `.deb`.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
