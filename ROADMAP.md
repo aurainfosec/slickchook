@@ -1,6 +1,6 @@
 # Slickchook roadmap
 
-Updated: 2026-08-07
+Updated: 2026-10-15
 
 This roadmap covers Slickchook server, runner, plugin, persistence, security,
 and deployment capabilities only. It does not contain findings or work items
@@ -46,6 +46,28 @@ for any assessed target environment.
 - [x] Add bounded Kiterunner API route discovery and GraphQL checks.
 - [x] Add a screenshot sanitization/inspection stage: strip metadata, re-encode,
   detect hidden or encoded text, and emit attacker-controlled structured output.
+
+## Prompt-injection resilience and testing
+
+- [ ] Extend hidden/encoded-instruction detection beyond screenshots
+  (SC-017's `screensanitize`) to arbitrary text/HTML/JSON asset content
+  any fetcher or crawler plugin returns (`httprequest`, `webfetch`,
+  `katana`, and similar) — a text-based analog of `screensanitize`'s
+  OCR/hidden-text/encoded-forms detection for content that was never an
+  image to begin with.
+- [ ] Cover other content-based injection surfaces a target can serve
+  back at the reading AI client, not just visible page text: HTTP
+  response headers, DNS TXT/other records, file contents pulled by
+  trufflehog/osvscanner-style plugins, zero-width Unicode, homoglyphs,
+  and right-to-left override tricks.
+- [ ] Add a dedicated capability for testing whether a target's own
+  AI/LLM-integrated feature (a chatbot, support agent, AI-powered
+  search, etc.) is itself vulnerable to prompt injection — an
+  authorized red-team technique distinct from the defensive items
+  above, and from everything else this fleet currently runs.
+- [ ] Add regression tests asserting untrusted asset content never
+  gains tool-calling authority regardless of which plugin or code path
+  it arrived through.
 
 ## Multi-client MCP deployment
 
