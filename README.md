@@ -130,3 +130,11 @@ test, gated on `TEST_POSTGRES_TLS_URL` (a TLS-enabled PostgreSQL instance),
 `TEST_POSTGRES_TLS_UNRELATED_CA` (any other PEM cert, used to prove
 untrusted certificates are rejected); all three must be set together for
 that test to run.
+
+## License
+
+Slickchook itself is licensed under the
+[GNU General Public License v3.0 or later](LICENSE). This covers this
+repository's own code and plugin manifests; it does not relicense the
+third-party tools each plugin wraps or references (nmap, testssl.sh,
+Nuclei, and the rest), which each keep their own separate licenses.
