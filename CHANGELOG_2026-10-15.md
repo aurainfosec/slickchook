@@ -150,3 +150,25 @@
   otherwise - needs its own version bump before cutting a `.deb`.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Added a "Compared to similar projects" section to `README.md`, per
+  direct request, following a web search for prior art (deliberately
+  phrased to avoid disclosing Slickchook's own specifics to the search
+  engine). Found two common patterns among publicly documented MCP
+  servers for security/pentesting tools: wrapping many tools inside one
+  shared container/execution environment, or exposing each tool as its
+  own independent MCP server (closest examples: pentestMCP, Pentester-
+  MCP, the Kali MCP Pentest Server, cyproxio's "MCP for Security"
+  collection, and single-tool wrappers like nmap-mcp).
+  Recorded four axes where Slickchook's design differs from what that
+  review found publicly documented: declarative per-tool manifests
+  rather than code bundled into the server, a hard privilege split
+  enforced by a separate setgid runner binary (not just a container
+  boundary), per-plugin/per-run Docker policy rather than one shared
+  container-wide policy, and structured scoped artifact retrieval/
+  reporting built on recorded run history rather than ad hoc tool
+  output.
+  Framed explicitly as a point-in-time comparison, not a permanent or
+  exhaustive claim - flagged for re-review if revisited.
+  No code change - `README.md` isn't compiled or exercised by any test.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.
