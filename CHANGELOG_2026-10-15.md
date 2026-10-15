@@ -240,3 +240,17 @@
   `cargo build --locked --release --bins` and `cargo test --lib`
   (12/12) clean, including the manifest-scanning test that parses every
   plugin directory.
+- Bumped `Cargo.toml`'s `version` from `0.3.1` to `0.3.2` so the #132
+  and #133 fixes above actually land on redeploy. Same root cause as
+  the earlier `0.3.0` -> `0.3.1` bump: `apt` decides "newer" purely by
+  comparing the `.deb`'s `Version:` field, and neither fix touched
+  `Cargo.toml` otherwise. This time the lesson generalizes further than
+  that earlier entry stated: `build-deb.sh` packages the entire
+  `plugins/` tree and both installer scripts into the `.deb`, not just
+  the compiled binary, so a plugin-Dockerfile fix or an installer-script
+  fix needs the same version bump a dependency update does. Corrected
+  `RUNNER.md`'s wording accordingly - it previously said "any change
+  that affects the compiled binary," which is the half of the rule that
+  doesn't cover what actually happened here.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean against the updated lockfile.
