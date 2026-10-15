@@ -75,6 +75,21 @@ and Docker socket access are the hard privilege boundary. Artifacts
 (screenshots, fetched pages, tool output) are treated as sensitive report
 data by design, not a bug to fix.
 
+**Intended network environment.** Slickchook, its paired MCP client, and
+its PostgreSQL backend are intended to run together on a private network
+segment — behind NAT, on a private LAN/VPN, or an equivalent isolated
+network — reachable only by each other, never directly on the public
+internet and never on a network where an on-path/adversarial party could
+observe or inject traffic between them. This is not an incidental detail:
+specific controls rely on it. The Caddy front-end's certificate is
+self-signed and pinned per instance rather than issued by a public CA
+(SC-014); the DNS-rebinding mitigation for the pinned `rmcp` transport
+assumes nothing malicious shares the host (SC-016); and the PostgreSQL
+TLS connection's handshake hardening (SC-020) only matters against an
+attacker who isn't already positioned on that path. Running any part of
+this deployment across a network where that assumption doesn't hold is
+outside Slickchook's threat model.
+
 ## Status and roadmap
 
 Slickchook is under active development. See

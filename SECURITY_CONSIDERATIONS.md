@@ -529,6 +529,55 @@ Recommended hardening:
   session logic) after any `rmcp` version bump, rather than assuming
   it still holds — a point release could restructure either.
 
+### SC-020: `rustls` TLS 1.3 handshake encryption-level boundary bug (GHSA-2mjx-qc3c-rqvc) — fixed by upgrading, unlike SC-019's four alerts
+
+Status: Resolved, 2026-10-15  
+Severity: Medium per upstream advisory; on-path-attacker precondition limits practical impact here
+
+Dependabot flagged
+[GHSA-2mjx-qc3c-rqvc](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc)
+(no CVE assigned yet, CVSS 5.3) against `rustls`: versions `0.23.13`
+through `0.23.44` accept a TLS 1.3 handshake message (e.g.
+`EncryptedExtensions`) packed into the same record as the preceding
+key-changing message, instead of rejecting the connection per RFC 8446
+§5.1. The handshake transcript remains authenticated, so this can't be
+used to alter or complete a forged handshake, but it means a peer could
+send a message that should have been encrypted in plaintext without
+`rustls` rejecting the connection.
+
+Unlike the four alerts reviewed in SC-019, this one is directly
+applicable: `Cargo.lock` had resolved `rustls` to `0.23.42`, inside the
+vulnerable range, and `rustls` is a real, compiled dependency here —
+`tokio-postgres-rustls` uses it as a TLS *client* for the PostgreSQL
+connection when `database_tls = "require"` (see SC-013), which is
+exactly the handshake-parsing role this advisory describes. There is no
+feature-gating argument available this time.
+
+Fixed by running `cargo update -p rustls`, which resolved to `0.23.46`
+(`rustls-webpki` moved to `0.103.15` alongside it) — both already
+satisfy the existing `Cargo.toml` constraint (`rustls = "0.23.42"`,
+i.e. `^0.23.42`), so no manifest edit was needed. `cargo build --locked
+--release --bins` and `cargo test --lib` (12/12) pass against the
+updated lockfile.
+
+Exploiting this still requires an attacker positioned on-path between
+Slickchook and whatever TLS peer it's talking to as a client (here,
+PostgreSQL) — see the "Intended network environment" note in
+`README.md`'s security-model section for why that precondition is
+expected not to hold in Slickchook's intended deployment, same as the
+loopback/Caddy-scoping assumptions SC-016 and SC-014 already rely on.
+
+Recommended hardening:
+
+- Keep `rustls` current via routine `cargo update` passes, not just in
+  response to a Dependabot alert; this crate is maintained actively
+  enough that version drift accumulates real fixes.
+- Re-run this same resolved-version check (`grep -A2 'name = "rustls"'
+  Cargo.lock`) whenever reviewing a future `rustls` or
+  `tokio-postgres-rustls` advisory, since `Cargo.toml`'s own
+  version constraint only sets a floor — what's actually compiled in is
+  whatever `Cargo.lock` resolved to.
+
 ## Reporting and maintenance
 
 For every new concern, assign an `SC-NNN` identifier, record its status and
