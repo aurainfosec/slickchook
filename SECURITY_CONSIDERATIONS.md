@@ -446,13 +446,13 @@ Recommended hardening:
   malicious, compromised, or simply buggy in a way that could have exposed
   it.
 
-### SC-019: Three `rmcp` Dependabot alerts reviewed and confirmed not applicable — vulnerable code isn't compiled into this binary
+### SC-019: `rmcp` Dependabot alerts reviewed and confirmed not applicable — vulnerable code isn't compiled into this binary
 
 Status: Reviewed, not applicable  
-Severity: High/High/Medium per upstream advisories; none apply to Slickchook's actual build
+Severity: High/High/Medium/Medium per upstream advisories; none apply to Slickchook's actual build
 
-Three new Dependabot alerts landed against `rmcp` in September 2026, on
-top of the already-tracked SC-016:
+Four new Dependabot alerts landed against `rmcp` between September and
+October 2026, on top of the already-tracked SC-016:
 
 - [GHSA-9pj6-vhgr-3mwh](https://github.com/modelcontextprotocol/rust-sdk/security/advisories/GHSA-9pj6-vhgr-3mwh)
   (CVE-2026-63128, High) — an unauthenticated remote attacker can leak
@@ -468,10 +468,16 @@ top of the already-tracked SC-016:
   HTTP client follows redirects without stripping caller-supplied custom
   headers (e.g. an API key), leaking them to a cross-origin redirect
   target.
+- [GHSA-c9xm-49cp-xcr9](https://github.com/modelcontextprotocol/rust-sdk/security/advisories/GHSA-c9xm-49cp-xcr9)
+  (no CVE assigned yet, Medium) — `rmcp`'s OAuth client fetches a
+  `resource_metadata` URL taken directly from a server-controlled
+  `WWW-Authenticate` header with no same-origin or private-network
+  check, letting a malicious MCP server make the client issue an SSRF
+  request (e.g. to a cloud metadata endpoint or an internal service).
 
 Unlike SC-016 (where the same *underlying* gap turned out to also exist
 in the SSE transport code Slickchook actually uses, just not the exact
-module the advisory named), all three of these were checked directly
+module the advisory named), all four of these were checked directly
 against `rmcp 0.5.0`'s own `Cargo.toml` feature list
 (`~/.cargo/registry/src/.../rmcp-0.5.0/Cargo.toml`) and don't apply, for
 two independent reasons:
@@ -479,12 +485,15 @@ two independent reasons:
 - **The vulnerable modules require Cargo features Slickchook doesn't
   enable at all.** Slickchook's own `Cargo.toml` only turns on `server`
   and `transport-sse-server`. The session leak lives entirely in
-  `transport-streamable-http-server` (its own separate feature); the
-  OAuth flaw lives in `auth`; the header-leak flaw lives in
-  `transport-streamable-http-client` and `client`. None of those three
-  features are enabled, so none of that code is even compiled into
-  Slickchook's binary — not just unreached at runtime, genuinely absent
-  from the built artifact.
+  `transport-streamable-http-server` (its own separate feature); both
+  OAuth flaws (the resource-field validation gap and the
+  `resource_metadata` SSRF) live in `auth` — confirmed directly in
+  `rmcp 0.5.0`'s own `src/transport.rs`, where `pub mod auth;` sits
+  behind a literal `#[cfg(feature = "auth")]`; the header-leak flaw
+  lives in `transport-streamable-http-client` and `client`. None of
+  those features are enabled, so none of that code is even compiled
+  into Slickchook's binary — not just unreached at runtime, genuinely
+  absent from the built artifact.
 - **The session-leak's specific bug pattern doesn't independently exist
   in the code Slickchook does compile**, checked directly (the same
   rigor SC-016 applied, rather than trusting feature separation alone):
@@ -498,24 +507,24 @@ two independent reasons:
   at all — `sse_handler` never validates incoming message content in
   the first place, that happens in a separate handler that looks up an
   already-established session rather than creating one.
-- The OAuth and header-leak flaws are also conceptually inapplicable
-  regardless of feature-gating: both are client-side transport
-  behavior (an `rmcp`-based *client* authenticating to, or sending
-  custom-header requests to, another MCP server). Slickchook is
+- Both OAuth flaws and the header-leak flaw are also conceptually
+  inapplicable regardless of feature-gating: all three are client-side
+  transport behavior (an `rmcp`-based *client* authenticating to, or
+  sending custom-header requests to, another MCP server). Slickchook is
   exclusively an MCP *server* — it never acts as an OAuth client or
   sends outbound custom-header requests of this kind to anything.
 
 Recommended hardening:
 
-- No action needed against the current codebase for these three; they
+- No action needed against the current codebase for these four; they
   do not represent a real gap in the deployed binary.
 - If `rmcp` is ever upgraded to enable `client`, `auth`, or
   `transport-streamable-http-client`/`-server` (e.g. as part of the
   SC-016 migration to `StreamableHttpService`), re-review this entry
   and SC-016 together, since crossing that migration reintroduces
-  exactly the module these three alerts describe — confirm the
+  exactly the modules these four alerts describe — confirm the
   version landed on actually includes each fix (`>= 2.0.0` for the
-  session leak and OAuth flaw, `>= 2.1.0` for the header leak).
+  session leak and both OAuth flaws, `>= 2.1.0` for the header leak).
 - Re-verify this reasoning (feature list + `sse_server.rs`'s own
   session logic) after any `rmcp` version bump, rather than assuming
   it still holds — a point release could restructure either.
