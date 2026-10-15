@@ -46,6 +46,19 @@ newer `.deb`) updates it in place — same env-var override mechanism for
 the Caddy hostname/port/cert lifetime as described in that section below,
 since `sudo` resets most environment variables by default:
 
+`apt` decides "newer" purely by comparing the package's `Version:`
+field — which `build-deb.sh` reads straight from `Cargo.toml`'s own
+`version` — never by comparing file contents. **Any change that affects
+the compiled binary must bump that version first**, including a
+dependency-only change (e.g. a `Cargo.lock` security update with no
+`Cargo.toml` edit otherwise): rebuilding and reinstalling without
+bumping the version produces a `.deb` `apt` considers identical to what's
+already installed, and `apt install` silently reports
+`<pkg> is already the newest version` and does nothing — the old binary
+keeps running with no error to signal it. If that already happened,
+recover with `sudo apt install --reinstall ./dist/slickchook_*.deb`
+rather than re-running the normal install command.
+
 ```bash
 sudo --preserve-env=CADDY_HOSTNAME,CADDY_LISTEN_PORT,CADDY_CERT_DAYS \
   CADDY_HOSTNAME=my-vm CADDY_LISTEN_PORT=8443 CADDY_CERT_DAYS=730 \
