@@ -68,3 +68,36 @@
   --lib` (12/12) clean - `Cargo.lock` needed no changes, since a
   package's own `license` field is metadata, not a dependency
   resolution input.
+- Documentation cohesion pass across the core (non-changelog) docs, per
+  direct request, following a read-only survey that flagged five
+  concrete issues:
+  - `ROADMAP.md`'s "Static web-content analysis" section had four
+    unchecked items (authorized URL fetcher, read-only `/input` mount,
+    network-disabled/non-root analyzers, never executing downloaded
+    JS/HTML) that are all already shipped - checked each one off with a
+    one-line pointer to where it's actually implemented/enforced
+    (`webfetch` in `PLUGINS.md`, `input_read_only` in `RUNNER.md`, the
+    fleet-wide container policy in `SECURITY_CONSIDERATIONS.md`).
+  - Moved eight misfiled items (JSluice/LinkFinder, SecretFinder,
+    source-map discovery, asset/response-size limits, staged-asset
+    cleanup tests, the fetch-to-analyzer `input_run_id` refactor,
+    input-run rejection rules, end-to-end fetcher/analyzer integration
+    tests) out of "Multi-client MCP deployment" and into "Static
+    web-content analysis," where they actually belong - none of them
+    are session/OAuth/transport work.
+  - `ARCHITECTURE.md`'s recon-workflow diagrams (both the detailed
+    phase diagram and the high-altitude convergence diagram) stopped at
+    §5 and didn't reflect `SKILL.md`'s §6 ("Building a visual
+    attack-surface map," added earlier this week) - added a matching §6
+    block to both diagrams.
+  - `SECURITY_CONSIDERATIONS.md`'s "Last reviewed" header was dated
+    2026-08-25 despite SC-019 being updated as recently as today -
+    bumped it to today's date.
+  - `README.md`'s "MCP surface" bullet listed every tool except
+    `purge_runs_by_target`, which `SKILL.md` and `CLIENT_SETUP.md` both
+    document as a real, callable tool - added it.
+  No code changes; `ROADMAP.md`/`ARCHITECTURE.md`/
+  `SECURITY_CONSIDERATIONS.md`/`README.md` aren't compiled or exercised
+  by any test.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean.

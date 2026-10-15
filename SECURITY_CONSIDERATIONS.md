@@ -4,7 +4,7 @@ This is a living record of Slickchook security assumptions, controls, and open
 concerns. Update it whenever a security-relevant behavior is introduced,
 discovered, fixed, or deliberately accepted.
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-10-15
 
 ## Trust boundaries
 

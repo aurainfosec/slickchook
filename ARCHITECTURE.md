@@ -209,6 +209,17 @@ artifact download.
       + URL-export step: normalize discovered URLs for import into
         Burp (Target > Scope > Advanced scope control > Load) or
         similar external tooling
+      |
+      v
+  §6  VISUAL ATTACK-SURFACE MAP  (on-request reporting output, not a
+      default end-of-engagement step)
+      gather structural data via the same list_runs_by_target /
+      list_run_artifacts / read_artifact calls §5 uses, structure it as
+      a tree (target -> resolved hosts -> ports/services -> web-layer
+      findings), classify each node confirmed / tested-negative /
+      notable / flagged, call out corroborated multi-plugin findings,
+      and publish it as an HTML Artifact (inline SVG diagram + an
+      evidence table mapping every node back to its source run)
 ```
 
 ### Convergence into summary and download
@@ -258,5 +269,17 @@ feeds into the final synthesis and raw-artifact download:
         - URL-export step (separate from the raw archive): normalizes
           discovered URLs for import into Burp (Target > Scope >
           Advanced scope control > Load) or similar external tooling
+   =============================================================================
+                                  |
+                                  v
+   =============================================================================
+    §6  VISUAL ATTACK-SURFACE MAP  (on request, not a default step)
+        - reuses §5's same list_runs_by_target / list_run_artifacts /
+          read_artifact calls - no dedicated tool of its own
+        - structures findings as a tree and classifies every node
+          confirmed / tested-negative / notable / flagged, so the
+          result is auditable rather than just a picture
+        - published as an HTML Artifact: inline SVG diagram + an
+          evidence table tying each node back to its source run
    =============================================================================
 ```

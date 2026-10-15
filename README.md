@@ -48,7 +48,8 @@ root — the basis of fetch-then-analyze pipelines (e.g. `screensanitize`,
 **MCP surface:** `run_plugin` (synchronous), `start_plugin` /
 `plugin_status` / `plugin_cancel` (asynchronous jobs), `list_plugins`,
 `health`, `list_runs_by_target` / `list_run_artifacts` / `read_artifact`
-(scoped artifact retrieval).
+(scoped artifact retrieval), `purge_runs_by_target` (deletes a target's
+recorded runs and artifacts).
 
 **Persistence.** `PostgresStore` records run metadata (plugin, container,
 target, status, exit code, timestamps, input JSON) to PostgreSQL, required
