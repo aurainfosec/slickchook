@@ -38,14 +38,33 @@ for any assessed target environment.
 
 ## Static web-content analysis
 
-- [ ] Add an authorized URL fetcher that stores immutable per-run assets.
-- [ ] Add a read-only `/input` staging mount for analyzer plugins.
-- [ ] Keep analyzers network-disabled and non-root.
-- [ ] Never execute downloaded JavaScript or HTML.
+- [x] Add an authorized URL fetcher that stores immutable per-run assets —
+  the `webfetch` plugin (see `PLUGINS.md`), a thin, purpose-built
+  restriction around plain `wget` that fetches exactly one authorized URL
+  into the run's input staging directory.
+- [x] Add a read-only `/input` staging mount for analyzer plugins —
+  `docker.input_read_only = true` is the default for every plugin (see
+  "Static-analysis input mounts" in `RUNNER.md`); only a purpose-built
+  fetcher may opt out with `input_read_only = false`.
+- [x] Keep analyzers network-disabled and non-root — enforced fleet-wide
+  by the runner regardless of plugin (see "Existing controls" in
+  `SECURITY_CONSIDERATIONS.md`), not just for analyzer plugins
+  specifically.
+- [x] Never execute downloaded JavaScript or HTML — no plugin in the
+  fleet does this; analyzers (`osvscanner`, `screensanitize`, and
+  similar) only ever inspect fetched/staged content, never run it.
 - [x] Add offline OSV-Scanner dependency analysis.
 - [x] Add bounded Kiterunner API route discovery and GraphQL checks.
 - [x] Add a screenshot sanitization/inspection stage: strip metadata, re-encode,
   detect hidden or encoded text, and emit attacker-controlled structured output.
+- [ ] Add JSluice/LinkFinder endpoint extraction.
+- [ ] Add SecretFinder secret-pattern analysis with redaction.
+- [ ] Add source-map discovery and static inspection.
+- [ ] Enforce asset count, response-size, and total-download limits.
+- [ ] Add cleanup and cancellation tests for staged assets.
+- [ ] Refactor run persistence to support safe fetch-to-analyzer handoff by `input_run_id`.
+- [ ] Reject unknown, incomplete, expired, cross-root, and symlinked input runs.
+- [ ] Add end-to-end fetcher-to-read-only-analyzer integration tests.
 
 ## Prompt-injection resilience and testing
 
@@ -86,11 +105,3 @@ for any assessed target environment.
   reconnect-safe cancellation semantics.
 - [ ] Add restart, reconnect, concurrent-client, token-expiry, and authorization
   regression tests before enabling remote multi-client deployment.
-- [ ] Add JSluice/LinkFinder endpoint extraction.
-- [ ] Add SecretFinder secret-pattern analysis with redaction.
-- [ ] Add source-map discovery and static inspection.
-- [ ] Enforce asset count, response-size, and total-download limits.
-- [ ] Add cleanup and cancellation tests for staged assets.
-- [ ] Refactor run persistence to support safe fetch-to-analyzer handoff by `input_run_id`.
-- [ ] Reject unknown, incomplete, expired, cross-root, and symlinked input runs.
-- [ ] Add end-to-end fetcher-to-read-only-analyzer integration tests.
