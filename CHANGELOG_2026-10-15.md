@@ -101,3 +101,30 @@
   by any test.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed a real, applicable `rustls` Dependabot alert
+  ([GHSA-2mjx-qc3c-rqvc](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc),
+  Medium, no CVE yet): `rustls` 0.23.13-0.23.44 accept a TLS 1.3
+  handshake message packed into the same record as a preceding
+  key-changing message instead of rejecting it per RFC 8446 §5.1.
+  `Cargo.lock` had resolved to the vulnerable `0.23.42`, and - unlike
+  the four `rmcp` alerts closed out in SC-019 - this one actually
+  applies: `tokio-postgres-rustls` uses `rustls` as a TLS client for
+  the PostgreSQL connection when `database_tls = "require"`, exactly
+  the role the advisory describes.
+  Fixed by `cargo update -p rustls`, resolving to `0.23.46`
+  (`rustls-webpki` moved to `0.103.15` alongside it) - both already
+  satisfy the existing `Cargo.toml` constraint, so no manifest edit was
+  needed. Added `SC-020` documenting the alert, why it applies, and the
+  fix.
+  Also added an "Intended network environment" note to `README.md`'s
+  security-model section, per direct request: Slickchook, its paired
+  MCP client, and its PostgreSQL backend are intended to run on a
+  private network segment (behind NAT, a private LAN/VPN, or
+  equivalent) reachable only by each other, never on the public
+  internet or a network where an on-path party could sit between them
+  - the precondition several controls already relied on implicitly
+  (SC-014's per-instance pinned certificate, SC-016's DNS-rebinding
+  mitigation, and now SC-020's on-path caveat) but that was never
+  stated as an explicit, up-front deployment assumption before.
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean against the updated lockfile.
