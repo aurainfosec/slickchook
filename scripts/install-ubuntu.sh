@@ -249,12 +249,20 @@ systemctl restart slickchook.service
 install -d -o root -g root -m 0755 "${CADDY_TLS_DIR}"
 if [[ ! -f ${CADDY_TLS_DIR}/server.crt || ! -f ${CADDY_TLS_DIR}/server.key ]]; then
   echo "Generating Caddy TLS certificate for '${CADDY_HOSTNAME}' (valid ${CADDY_CERT_DAYS} days)."
+  # CA:TRUE looks wrong on what's otherwise an ordinary server leaf
+  # certificate, but it's correct here: connecting clients pin this exact
+  # certificate as their trust anchor (see above) rather than trusting it
+  # via a separate CA chain, and a strict chain-building verifier
+  # (OpenSSL's, which Node's TLS stack uses) refuses to accept a
+  # CA:FALSE certificate in that role at all, even as a self-signed leaf.
+  # See SC-014 and issue #133 for the full failure mode (curl's --cacert
+  # is permissive enough to mask this; Node-based MCP clients are not).
   openssl req -new -x509 -days "${CADDY_CERT_DAYS}" -nodes \
     -out "${CADDY_TLS_DIR}/server.crt" -keyout "${CADDY_TLS_DIR}/server.key" \
     -subj "/CN=${CADDY_HOSTNAME}" \
     -addext "subjectAltName=DNS:${CADDY_HOSTNAME}" \
-    -addext "basicConstraints=critical,CA:FALSE" \
-    -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign" \
     -addext "extendedKeyUsage=serverAuth"
 else
   echo "Existing Caddy TLS certificate found at ${CADDY_TLS_DIR}/server.crt; leaving it in place."

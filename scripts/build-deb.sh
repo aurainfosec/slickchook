@@ -135,12 +135,21 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 install -d -o root -g root -m 0755 /etc/caddy/tls
 if [ ! -e /etc/caddy/tls/server.crt ] || [ ! -e /etc/caddy/tls/server.key ]; then
+  # CA:TRUE looks wrong on what's otherwise an ordinary server leaf
+  # certificate, but it's correct here: RUNNER.md has connecting clients
+  # pin this exact certificate as their trust anchor rather than trusting
+  # it via a separate CA chain, and a strict chain-building verifier
+  # (OpenSSL's, which Node's TLS stack uses) refuses to accept a
+  # CA:FALSE certificate in that role at all, even as a self-signed
+  # leaf. See SC-014 and issue #133 for the full failure mode (curl's
+  # --cacert is permissive enough to mask this; Node-based MCP clients
+  # are not).
   openssl req -new -x509 -days "${CADDY_CERT_DAYS}" -nodes \
     -out /etc/caddy/tls/server.crt -keyout /etc/caddy/tls/server.key \
     -subj "/CN=${CADDY_HOSTNAME}" \
     -addext "subjectAltName=DNS:${CADDY_HOSTNAME}" \
-    -addext "basicConstraints=critical,CA:FALSE" \
-    -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign" \
     -addext "extendedKeyUsage=serverAuth"
 fi
 chown root:caddy /etc/caddy/tls/server.key

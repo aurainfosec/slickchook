@@ -303,6 +303,25 @@ that is a new supply-chain trust addition equivalent in kind to the
 container-image provenance concerns in SC-003/SC-004 — review it the same
 way before relying on it in production.
 
+**Addendum (2026-10-15, issue #133):** the certificate's
+`basicConstraints` extension was `CA:FALSE` until this date, which is
+wrong for this specific use — a certificate pinned as a client's trust
+anchor is acting as that client's root of trust, and a strict
+chain-building verifier (OpenSSL's, which Node's TLS stack uses) refuses
+to accept a `CA:FALSE` certificate in that role at all, even as a
+self-signed leaf. `curl --cacert` is permissive enough not to catch this,
+which is why it went unnoticed: the endpoint looked healthy under manual
+`curl` checks while every Node-based MCP client (Claude Code included)
+failed to connect with no further diagnostic than "Failed to connect."
+Fixed by issuing new certificates with `CA:TRUE` and `keyUsage` extended
+to include `keyCertSign`, in both `scripts/build-deb.sh` and
+`scripts/install-ubuntu.sh`. This only affects *newly generated*
+certificates — per the "deliberately never regenerated on
+reinstall/upgrade" behavior above, an already-deployed instance keeps
+its existing `CA:FALSE` certificate (and the connection failure it
+causes) until `/etc/caddy/tls/server.{crt,key}` is deleted and
+regenerated.
+
 ### SC-015: Post-run artifact permission fixup runs as an unprivileged, same-UID container
 
 Status: Mitigated by construction  
