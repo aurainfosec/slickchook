@@ -90,6 +90,36 @@ attacker who isn't already positioned on that path. Running any part of
 this deployment across a network where that assumption doesn't hold is
 outside Slickchook's threat model.
 
+## Compared to similar projects
+
+A review of publicly documented MCP servers for security/pentesting tools
+(October 2026) found two common patterns: wrapping many tools inside one
+shared container or execution environment, or exposing each tool as its
+own independent MCP server. Slickchook's design differs on several axes:
+
+- **Plugins are declarative data, not code bundled into the server** — a
+  TOML manifest per tool (see "Plugins are data, not code" above), not a
+  tool-specific wrapper compiled or scripted into the MCP server itself.
+- **A hard privilege split enforced by a separate binary**, not just a
+  container boundary: the long-running MCP server never touches Docker
+  at all; a separate setgid `slickchook-runner` binary is the only
+  process with `docker.sock` access, and it re-validates each plugin's
+  manifest and policy independently of the server before spawning
+  anything.
+- **Per-plugin, per-run Docker policy** (network mode, capabilities,
+  resource limits, tmpfs, declared secrets) rather than one container-wide
+  policy shared across every tool.
+- **Structured, scoped artifact retrieval and reporting** built on
+  recorded run history (`list_runs_by_target` / `list_run_artifacts` /
+  `read_artifact`, and the on-request attack-surface-map workflow in
+  `SKILL.md` §6), rather than ad hoc tool output handed back inline.
+
+This isn't a claim that these differences are permanent or unique — it's
+a record of what distinguished Slickchook from the comparable projects
+found at the time of this review, kept here so the comparison doesn't
+silently go stale as either side evolves. Re-review and update this
+section if revisited.
+
 ## Status and roadmap
 
 Slickchook is under active development. See
