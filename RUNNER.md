@@ -324,6 +324,12 @@ connected client already has. Delete `/etc/caddy/tls/server.{crt,key}`
 manually to force reissuance (and re-deliver the new certificate to
 connecting clients).
 
+If a Node-based MCP client (Claude Code included) fails to connect with
+no more diagnostic than "Failed to connect," while `curl --cacert
+server.crt` against the same endpoint succeeds, the certificate was
+likely generated before the `CA:TRUE` fix in SC-014 — delete and
+regenerate it as above.
+
 ## 6. Verify runner and container execution
 
 First check the endpoint and confirm the service account still has no direct

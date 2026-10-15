@@ -172,6 +172,42 @@
   No code change - `README.md` isn't compiled or exercised by any test.
   Verified: `cargo build --locked --release --bins` and `cargo test
   --lib` (12/12) clean.
+- Fixed #133: the Caddy front-end certificate `scripts/build-deb.sh` and
+  `scripts/install-ubuntu.sh` generate was issued with
+  `basicConstraints=critical,CA:FALSE`, but `RUNNER.md` has connecting
+  clients pin that exact certificate as their trust anchor rather than
+  trusting it via a separate CA chain. A strict chain-building verifier
+  (OpenSSL's, which Node's TLS stack uses) refuses to accept a
+  `CA:FALSE` certificate in that role at all, even as a self-signed
+  leaf - so every Node-based MCP client (Claude Code included) failed
+  to connect with no more diagnostic than "Failed to connect," while
+  the endpoint looked completely healthy under manual `curl --cacert`
+  checks (confirmed: `curl --cacert`'s chain validation is permissive
+  enough not to catch this, which is exactly why it went unnoticed).
+  Confirmed directly against the current scripts in this session - both
+  had the identical `CA:FALSE` extension.
+  Fixed by issuing new certificates with `CA:TRUE` and `keyUsage`
+  extended to include `keyCertSign` in both scripts, with an inline
+  comment explaining why `CA:TRUE` is correct here despite looking wrong
+  on what's otherwise an ordinary server certificate. Added an addendum
+  to SC-014 and a troubleshooting pointer in `RUNNER.md`'s Caddy section
+  for anyone hitting this on an already-deployed instance.
+  This only affects *newly generated* certificates - an existing
+  deployment's `CA:FALSE` certificate (and the connection failure it
+  causes) persists until `/etc/caddy/tls/server.{crt,key}` is deleted
+  and regenerated, per the existing "never regenerated on
+  reinstall/upgrade" behavior.
+  Verified a generated `CA:TRUE` certificate passes `openssl verify
+  -CAfile server.crt -verify_hostname <host> server.crt` as its own
+  trust anchor in this session. Could not independently reproduce the
+  specific Node-vs-curl discrepancy the issue describes (no Node
+  runtime in this environment, and the sandbox's own `openssl verify`
+  CLI accepted both the old and new certificate - consistent with the
+  issue's own warning that permissive tooling masks this bug) - relying
+  on the issue author's own stated end-to-end verification
+  (`claude mcp list` reporting `✔ Connected` with the `CA:TRUE` fix).
+  Verified: `cargo build --locked --release --bins` and `cargo test
+  --lib` (12/12) clean; `bash -n` on both modified scripts.
 - Fixed #132: three bundled plugins (`dnsx`, `feroxbuster`,
   `cloud-storage-enum`) used BuildKit-only Dockerfile syntax
   (`ARG TARGETARCH`, `COPY --chmod=...`), which silently breaks under
