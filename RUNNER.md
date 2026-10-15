@@ -48,15 +48,20 @@ since `sudo` resets most environment variables by default:
 
 `apt` decides "newer" purely by comparing the package's `Version:`
 field — which `build-deb.sh` reads straight from `Cargo.toml`'s own
-`version` — never by comparing file contents. **Any change that affects
-the compiled binary must bump that version first**, including a
-dependency-only change (e.g. a `Cargo.lock` security update with no
-`Cargo.toml` edit otherwise): rebuilding and reinstalling without
-bumping the version produces a `.deb` `apt` considers identical to what's
-already installed, and `apt install` silently reports
-`<pkg> is already the newest version` and does nothing — the old binary
-keeps running with no error to signal it. If that already happened,
-recover with `sudo apt install --reinstall ./dist/slickchook_*.deb`
+`version` — never by comparing file contents. **Any change to anything
+the package actually ships must bump that version first**, not just a
+change to the compiled binary: `build-deb.sh` also copies the whole
+`plugins/` tree into the package (`/usr/share/slickchook/plugins`,
+source for `slickchook-plugin install`) and bakes the installer's
+`postinst`/`prerm` scripts into it, so a plugin-manifest/Dockerfile fix
+or an installer-script fix needs the same version bump as a
+dependency-only `Cargo.lock` update does. Rebuilding and reinstalling
+without bumping the version produces a `.deb` `apt` considers identical
+to what's already installed, and `apt install` silently reports
+`<pkg> is already the newest version` and does nothing — whatever was
+actually fixed keeps not taking effect, with no error to signal it. If
+that already happened, recover with
+`sudo apt install --reinstall ./dist/slickchook_*.deb`
 rather than re-running the normal install command.
 
 ```bash
