@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir \
 # it's fetched separately at the exact same pinned commit and committed
 # into this plugin's own directory (see fuzz.txt here), matching this
 # fleet's usual bundled-wordlist-as-asset convention.
-COPY --chmod=0644 fuzz.txt /opt/fuzz.txt
+COPY fuzz.txt /opt/fuzz.txt
+RUN chmod 0644 /opt/fuzz.txt
 COPY entrypoint.py /usr/local/bin/slickchook-cloud-storage-enum-entrypoint.py
 RUN chmod 0555 /usr/local/bin/slickchook-cloud-storage-enum-entrypoint.py
 ENTRYPOINT ["/usr/local/bin/slickchook-cloud-storage-enum-entrypoint.py"]

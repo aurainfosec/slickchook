@@ -1,10 +1,9 @@
 FROM alpine:3.21 AS build
 
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-        amd64) release_arch=amd64 ;; \
-        arm64) release_arch=arm64 ;; \
-        *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+RUN case "$(apk --print-arch)" in \
+        x86_64)  release_arch=amd64 ;; \
+        aarch64) release_arch=arm64 ;; \
+        *) echo "unsupported architecture: $(apk --print-arch)" >&2; exit 1 ;; \
     esac \
     && apk add --no-cache ca-certificates wget unzip \
     && wget -qO /tmp/dnsx.zip \
