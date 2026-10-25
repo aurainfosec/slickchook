@@ -363,6 +363,7 @@ impl PluginManager {
                 missing_secrets.join(", ")
             );
         }
+        reject_writable_input_chaining(plugin_name, &plugin.manifest, input_run_id)?;
         // Bounds total concurrent containers across every caller and both
         // execution APIs (`run_plugin`, `start_plugin`) - see `run_slots`'s
         // doc comment. Held for the entire run, released on drop whichever
@@ -859,6 +860,35 @@ pub fn missing_required_secrets(manifest: &PluginManifest) -> Vec<&str> {
         .collect()
 }
 
+/// A writable fetcher (`docker.input_read_only = false`) must never be
+/// pointed at a *previous* run's input tree: the runner mounts
+/// `--input-dir` read-write purely based on the plugin being invoked now,
+/// with no restriction tying that write access to the run's own
+/// freshly-created directory - so chaining `input_run_id` into a second
+/// writable-fetcher call lets it mutate the earlier run's already-recorded
+/// evidence (e.g. re-running `webfetch` with a different URL but the same
+/// `input_run_id` overwrites that run's original `input/index.html` in
+/// place, even though `list_runs_by_target` still describes the original
+/// fetch). The documented fetch-then-analyze pipeline this fleet actually
+/// uses only ever chains a *read-only* consumer onto a prior writable
+/// fetch, which this doesn't affect - see SECURITY_REVIEW_2026-10-20.md's
+/// R5.
+pub fn reject_writable_input_chaining(
+    plugin_name: &str,
+    manifest: &PluginManifest,
+    input_run_id: Option<&str>,
+) -> Result<()> {
+    if input_run_id.is_some() && !manifest.docker.input_read_only {
+        bail!(
+            "plugin `{plugin_name}` has writable input (`docker.input_read_only = false`) and \
+             cannot accept `input_run_id`: chaining a previous run's input into a writable \
+             fetcher would let it mutate that run's already-recorded evidence. Only a read-only \
+             consumer may chain onto a prior run's input."
+        );
+    }
+    Ok(())
+}
+
 pub fn validate_docker_policy(policy: &DockerPolicy) -> Result<()> {
     if !matches!(policy.network.as_str(), "none" | "bridge") {
         bail!("docker network must be `none` or `bridge`");
@@ -1322,6 +1352,31 @@ mod tests {
             assets: Vec::new(),
             secrets,
         }
+    }
+
+    #[test]
+    fn reject_writable_input_chaining_blocks_only_writable_plugins_with_a_chained_run() {
+        let mut writable = secret_test_manifest(Vec::new());
+        writable.docker.input_read_only = false;
+        let mut read_only = secret_test_manifest(Vec::new());
+        read_only.docker.input_read_only = true;
+
+        // A writable fetcher given a chained `input_run_id` must be refused -
+        // this is the exact scenario SECURITY_REVIEW_2026-10-20.md's R5
+        // describes (re-running webfetch against a prior run's input tree).
+        assert!(reject_writable_input_chaining("webfetch", &writable, Some("prior-run-id")).is_err());
+
+        // The same writable plugin with no chaining at all (its own fresh
+        // input directory) must still be allowed - this must not break the
+        // ordinary, unchained case every ordinary run uses.
+        assert!(reject_writable_input_chaining("webfetch", &writable, None).is_ok());
+
+        // A read-only consumer chaining onto a prior run - the documented
+        // fetch-then-analyze pipeline - must still be allowed.
+        assert!(
+            reject_writable_input_chaining("sourcemap-scanner-like-readonly", &read_only, Some("prior-run-id"))
+                .is_ok()
+        );
     }
 
     #[test]

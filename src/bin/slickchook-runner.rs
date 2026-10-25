@@ -168,6 +168,27 @@ async fn run() -> Result<()> {
     let manifest = load_manifest(&args.manifest)?;
     validate_docker_policy(&manifest.docker)?;
 
+    // Independent re-validation of what `PluginManager::run_plugin_with_input`
+    // already rejects server-side, matching the existing pattern of the
+    // runner never trusting the server passed a valid call (see
+    // `missing_required_secrets`'s doc comment). The run's own fresh input
+    // directory (`<artifact_dir>/input`, always created before the runner is
+    // invoked, chained or not) is the only input directory a writable
+    // fetcher may legitimately be mounted against read-write; anything else
+    // can only be a previous run's directory, which this plugin's own
+    // output would then mutate - see SECURITY_REVIEW_2026-10-20.md's R5.
+    if let Some(input_dir) = &input_dir {
+        let own_fresh_input_dir = canonicalize_dir(&artifact_dir.join("input"))?;
+        if *input_dir != own_fresh_input_dir && !manifest.docker.input_read_only {
+            bail!(
+                "plugin `{}` has writable input (`docker.input_read_only = false`) and was \
+                 given an input directory other than its own run's - refusing to mount a \
+                 chained prior run's input read-write",
+                manifest.name
+            );
+        }
+    }
+
     let missing_secrets = missing_required_secrets(&manifest);
     if !missing_secrets.is_empty() {
         bail!(
