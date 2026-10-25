@@ -8,6 +8,8 @@ target must contain the literal keyword FUZZ at the exact injection point, e.g. 
 Bundles the same three small reviewed wordlists as this fleet's feroxbuster plugin (selectable via wordlist), not h3fuzz's own bundled final.txt (233k lines, ~2.7MB, not reviewed here) - the same bounded-wordlist rationale SECLists exclusion already documents for feroxbuster applies here too. threads and rate_limit are tunable: lower both for a fragile target or quieter footprint, raise them for faster coverage of a large authorized scope. autocalibrate is worth enabling against any target that might return 200 for nonexistent paths (soft-404), since that otherwise floods results with false positives.
 
 This manifest intentionally does not expose h3fuzz's acknowledged HTTP/3 high-rate ceiling-test policy (the flags behind its documented 100k+ req/s mode) - that mode is an explicit load-testing feature, out of scope for a bounded recon plugin, and is not reachable through this plugin's declared options regardless of input.
+
+HOME is set to a writable path in the build - confirmed live that autocalibrate otherwise silently does nothing under this fleet's usual unprivileged UID with no matching passwd entry: h3fuzz resolves its config dir from $HOME/.config, which with an empty $HOME becomes the unwritable /.config, and it swallows the resulting mkdir/write error internally rather than failing loudly (same root cause as this fleet's alterx plugin, a different symptom).
 """
 fixed_args = ["-noninteractive", "-s", "-of", "json", "-o", "/artifacts/result.json"]
 
