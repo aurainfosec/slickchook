@@ -73,10 +73,12 @@ Last reviewed: 2026-10-25
   for the residual trust boundary once a value reaches a container.
 - Analyzer plugins (e.g. `osvscanner`, `screensanitize`) receive `/input` as a
   read-only mount by default; only a purpose-built fetcher may set
-  `docker.input_read_only = false`, and that mount is still constrained to
-  the current run's own artifact directory. This separates networked
-  collection from offline analysis and prevents an analyzer from modifying
-  collected content or reaching arbitrary host paths.
+  `docker.input_read_only = false`. This separates networked collection
+  from offline analysis and prevents an analyzer from modifying collected
+  content. A writable fetcher's mount is now also confined to its own
+  run's input directory and can never be pointed at a previous run's via
+  `input_run_id` — see SC-023; this was not actually true before
+  2026-10-25 despite being claimed here.
 
 ## Open concerns
 
@@ -735,6 +737,54 @@ dangling-symlink test is a direct regression test for this exact bug - it
 fails under the old `path.exists()`-based code (confirmed by reasoning
 through the old logic against it, since the old code is no longer present
 to re-run) and passes under the fix.
+
+### SC-023: Writable fetchers could mutate a previous run's recorded evidence via `input_run_id` (R5 of the 2026-10-20 independent review)
+
+Status: Resolved, 2026-10-25
+Severity: Medium evidence-integrity defect
+
+The same independent review found that `input_run_id` chaining had no rule
+tying write access to the current run: `run_plugin_with_input` resolves the
+named previous run's `input/` directory and passes it straight through as
+`--input-dir`, and the runner decides `ro`/`rw` purely from the *plugin
+being invoked now*'s own `docker.input_read_only`, with no check that this
+is the first time that directory has been used. Concretely: run `webfetch`
+once (producing `input/index.html` under run A), then run `webfetch` again
+with `input_run_id` set to run A and a different URL — its fixed
+`-O /input/index.html` overwrites run A's original fetch in place, even
+though `list_runs_by_target`/`list_run_artifacts` still describe run A as
+having fetched the original URL. `gowitness` and `sourcemap-scanner` (the
+fleet's other two writable fetchers) had the identical exposure. This
+directly contradicted the "Existing controls" claim that a writable
+fetcher's mount "is still constrained to the current run's own artifact
+directory" (now corrected).
+
+The fleet's actual documented chaining pattern (confirmed by reading every
+plugin that references `input_run_id`: `gowitness`→`screensanitize`,
+`sourcemap-scanner`→a secret-scanning plugin, a wordlist producer→
+`sippts-dcrack`) only ever chains a *read-only* consumer onto a prior
+writable fetch's output — never a second writable fetcher onto another's.
+Fixing the narrow, actually-dangerous combination therefore doesn't affect
+any real workflow.
+
+Fixed with `reject_writable_input_chaining`: any plugin with
+`docker.input_read_only = false` now refuses `input_run_id` outright,
+server-side, before a runner is ever spawned. Re-validated independently in
+`slickchook-runner` itself too (matching the existing pattern of the runner
+never trusting the server passed a valid call): it compares the given
+`--input-dir` against its own run's freshly-created `<artifact_dir>/input`
+and refuses to proceed if they differ for a writable plugin — closing the
+same gap even for a caller invoking the runner directly rather than through
+the server.
+
+Validation: `cargo build --locked --release --bins` and `cargo test --lib`
+(16/16 — one new test exercising all three cases: a writable plugin with
+chaining refused, the same plugin with no chaining still allowed, and a
+read-only plugin with chaining still allowed). Not independently exercised
+against a real two-run Docker sequence in this sandbox (no Docker socket
+access) — needs confirming on the real deployment that re-running a
+writable fetcher with a prior `input_run_id` is actually rejected end to
+end.
 
 ## Reporting and maintenance
 

@@ -1,5 +1,47 @@
 # Changelog — 2026-10-25
 
+- Fixed writable fetchers (`webfetch`, `gowitness`, `sourcemap-scanner`)
+  being able to mutate a *previous* run's already-recorded evidence via
+  `input_run_id`, identified as R5 in the independent security review
+  (`SECURITY_REVIEW_2026-10-20.md`, not committed to this repository).
+  Third increment in that review's own priority order (R7, R3, this P2).
+  - `run_plugin_with_input` resolved a named previous run's `input/`
+    directory and passed it straight through as `--input-dir`, with the
+    runner deciding `ro`/`rw` purely from the plugin being invoked *now*'s
+    own `docker.input_read_only` - no rule tied write access to the
+    current run. Concretely: run `webfetch` once, then run it again with
+    the first run's `input_run_id` and a different URL - its fixed
+    `-O /input/index.html` overwrites the original run's fetch in place,
+    even though `list_runs_by_target` still describes the original.
+  - Read every plugin that actually references `input_run_id` before
+    fixing this, to confirm the fix wouldn't break real functionality: the
+    fleet's documented chaining pattern (`gowitness`→`screensanitize`,
+    `sourcemap-scanner`→a secret-scanning plugin, a wordlist producer→
+    `sippts-dcrack`) only ever chains a *read-only* consumer onto a prior
+    writable fetch - never a second writable fetcher onto another's. The
+    fix therefore doesn't affect any real workflow.
+  - Fixed with `reject_writable_input_chaining`: any plugin with
+    `docker.input_read_only = false` now refuses `input_run_id` outright,
+    server-side, before a runner is even spawned - and re-validated
+    independently in `slickchook-runner` itself (matching the existing
+    pattern of the runner never trusting the server passed a valid call),
+    which compares the given `--input-dir` against its own run's
+    freshly-created input directory and refuses to proceed if they differ
+    for a writable plugin.
+  - Corrected the "Existing controls" bullet in
+    `SECURITY_CONSIDERATIONS.md` claiming a writable fetcher's mount "is
+    still constrained to the current run's own artifact directory" - that
+    wasn't actually true before this fix. New SC-023 documents the real
+    finding and fix.
+  - Version bumped to 0.3.5 (compiled Rust change - needs the full `.deb`
+    rebuild/reinstall path, not a plugin-only install).
+  - Verified: `cargo build --locked --release --bins` and `cargo test --lib`
+    (16/16, one new) and `cargo test --bin slickchook-runner` (5/5) clean.
+    Not independently exercised against a real two-run Docker sequence in
+    this sandbox (no Docker socket access) - needs confirming on the real
+    deployment that re-running a writable fetcher with a prior
+    `input_run_id` is actually rejected end to end.
+
 - Fixed `write_artifact`'s dangling-symlink bypass, identified as R3 in the
   independent security review (`SECURITY_REVIEW_2026-10-20.md`, not
   committed to this repository). Second increment in that review's own
