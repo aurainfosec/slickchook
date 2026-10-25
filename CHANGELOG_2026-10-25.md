@@ -49,8 +49,36 @@
     architecture-detection `case` statement. Could not build or run the
     actual container image in this sandbox (no `docker` socket access) or
     execute the downloaded `h3fuzz` binary directly (blocked as
-    untrusted external code) - real-deployment verification (`list_plugins`
-    showing the new plugin, a live `run_plugin` call against an authorized
-    target, and `list_run_artifacts`/`read_artifact` retrieving
-    `result.json`) is still needed per `PLUGIN_WORKFLOW.md` step 5 once
-    this is installed on the deployment host.
+    untrusted external code).
+
+- Fixed `h3fuzz`'s `autocalibrate` (`-ac`) option silently doing nothing,
+  found via live deployment verification (merged PR #144, then installed
+  and run for real against an authorized target) rather than assumed
+  working from the manifest alone. `run_plugin` succeeded (`exit_code:
+  0`) but `stderr` showed: `Skipping strategy "basic" because of error:
+  open /.config/h3fuzz/autocalibration/basic.json: no such file or
+  directory`.
+  - Root cause confirmed directly from h3fuzz's own `v0.1.0` source
+    (`pkg/ffuf/util.go`'s `CheckOrCreateConfigDir`/`ReadDefaultConfig`,
+    `pkg/ffuf/constants.go`'s `CONFIGDIR = filepath.Join(xdg.ConfigHome,
+    "h3fuzz")`): with `$HOME` unset (this fleet's usual unprivileged
+    container UID has no matching `/etc/passwd` entry), `xdg.ConfigHome`
+    resolves to the bare `/.config`, which isn't writable by that UID;
+    `mkdir` fails, and `ReadDefaultConfig` explicitly swallows that error
+    (`// Try to create configuration directory, ignore the potential
+    error`). Autocalibration then silently has no strategy file to run
+    instead of erroring loudly - the exact same `$HOME`-unset failure
+    class already documented for this fleet's `alterx` plugin, just a
+    different symptom (quiet no-op instead of a startup panic).
+  - Fix: added `ENV HOME=/tmp` to the plugin's `Dockerfile` final stage
+    (the same fix already used by `alterx` and `feroxbuster`, and the
+    manifest's own `docker.tmpfs` already provides a writable `/tmp`).
+    Documented the mechanism directly in `h3fuzz.toml`'s description so
+    a future reader doesn't have to rediscover it.
+  - Verified: `cargo build --locked --release --bins` and `cargo test
+    --lib` (12/12) clean. Could not rebuild the image in this sandbox (no
+    `docker` socket access); needs reinstalling
+    (`sudo slickchook-plugin install plugins/h3fuzz` followed by
+    `sudo systemctl restart slickchook.service`) and a repeat live
+    `run_plugin` call with `autocalibrate=true` to confirm the strategy
+    file now loads instead of being skipped.
