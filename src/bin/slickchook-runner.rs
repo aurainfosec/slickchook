@@ -11,7 +11,116 @@ use std::{
     process::Stdio,
     time::Duration,
 };
-use tokio::{process::Command, time};
+use tokio::{io::AsyncReadExt, process::Command, time};
+
+/// Upper bound, per stream, on how much of a plugin container's stdout/stderr
+/// this runner holds in host memory. `docker run`'s own `.output()` buffers
+/// both streams in full with no limit of its own - target-controlled content
+/// echoed back through a tool's own output (a crawler's JSONL, a verbose
+/// scanner, etc.) could otherwise grow that buffer without bound regardless
+/// of the plugin container's own `--memory` limit, since streaming output
+/// through a pipe doesn't count against the container's resident memory the
+/// way holding it in the container's own heap would. Generous by design -
+/// see SECURITY_REVIEW_2026-10-20.md's R7 for the full reasoning - so a
+/// legitimate large crawl or scan result isn't silently clipped; override
+/// with `SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES` for an unusually output-heavy
+/// deployment.
+const DEFAULT_MAX_PLUGIN_OUTPUT_BYTES: usize = 256 * 1024 * 1024;
+
+fn max_plugin_output_bytes() -> usize {
+    env::var("SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|&value| value > 0)
+        .unwrap_or(DEFAULT_MAX_PLUGIN_OUTPUT_BYTES)
+}
+
+/// Output of a bounded-capture run: like `std::process::Output`, but each
+/// stream was capped at `max_bytes` while still being fully drained (so a
+/// chatty child never blocks on a full pipe), with `_truncated` recording
+/// whether the real stream was actually longer than what was kept.
+struct BoundedOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+}
+
+/// Reads `reader` to completion, keeping at most `max_bytes` of it. Bytes
+/// beyond the cap are read and discarded rather than left unread, so an
+/// over-producing child's pipe never fills and stalls it - draining is what
+/// bounds *this process's* memory; it does not stop the child from running
+/// or from continuing to produce output.
+async fn read_capped<R>(mut reader: R, max_bytes: usize) -> io::Result<(Vec<u8>, bool)>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buf = Vec::with_capacity(max_bytes.min(64 * 1024));
+    let mut chunk = [0u8; 64 * 1024];
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut chunk).await?;
+        if read == 0 {
+            break;
+        }
+        if buf.len() < max_bytes {
+            let keep = (max_bytes - buf.len()).min(read);
+            buf.extend_from_slice(&chunk[..keep]);
+            if keep < read {
+                truncated = true;
+            }
+        } else {
+            truncated = true;
+        }
+    }
+    Ok((buf, truncated))
+}
+
+/// Runs `command`, capturing stdout/stderr the same way `Command::output()`
+/// does but with `read_capped`'s per-stream byte bound instead of unbounded
+/// buffering. Both streams are read concurrently with the child's own
+/// execution (required, not an optimization: reading them sequentially could
+/// deadlock if the child fills one pipe while blocked writing to the other).
+async fn run_with_bounded_output(mut command: Command, max_bytes: usize) -> io::Result<BoundedOutput> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .expect("stdout was configured as piped");
+    let stderr = child
+        .stderr
+        .take()
+        .expect("stderr was configured as piped");
+
+    let ((stdout_bytes, stdout_truncated), (stderr_bytes, stderr_truncated), status) = tokio::try_join!(
+        read_capped(stdout, max_bytes),
+        read_capped(stderr, max_bytes),
+        child.wait(),
+    )?;
+
+    Ok(BoundedOutput {
+        status,
+        stdout: stdout_bytes,
+        stderr: stderr_bytes,
+        stdout_truncated,
+        stderr_truncated,
+    })
+}
+
+/// Appends a clear, human-visible marker to truncated output so a truncated
+/// artifact never looks like the tool's own complete, unremarkable output.
+fn mark_truncated(mut bytes: Vec<u8>, max_bytes: usize) -> Vec<u8> {
+    bytes.extend_from_slice(
+        format!(
+            "\n[slickchook runner: output truncated at {max_bytes} bytes; the plugin's actual \
+             output was longer]"
+        )
+        .as_bytes(),
+    );
+    bytes
+}
 
 /// UID:GID a plugin's container (and its permission-fixup follow-up) runs
 /// as. `0:0` only for a plugin whose manifest opts into
@@ -145,13 +254,12 @@ async fn run() -> Result<()> {
     command
         .arg(&manifest.container)
         .args(container_args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdin(Stdio::null());
 
+    let max_output_bytes = max_plugin_output_bytes();
     let output = match time::timeout(
         Duration::from_secs(manifest.docker.timeout_seconds),
-        command.output(),
+        run_with_bounded_output(command, max_output_bytes),
     )
     .await
     {
@@ -188,11 +296,21 @@ async fn run() -> Result<()> {
     // to read them back.
     fixup_artifact_permissions(&artifact_dir, &manifest.docker).await;
 
+    let stdout = if output.stdout_truncated {
+        mark_truncated(output.stdout, max_output_bytes)
+    } else {
+        output.stdout
+    };
+    let stderr = if output.stderr_truncated {
+        mark_truncated(output.stderr, max_output_bytes)
+    } else {
+        output.stderr
+    };
     io::stdout()
-        .write_all(&output.stdout)
+        .write_all(&stdout)
         .context("failed to write runner stdout")?;
     io::stderr()
-        .write_all(&output.stderr)
+        .write_all(&stderr)
         .context("failed to write runner stderr")?;
 
     if output.status.success() {
@@ -363,4 +481,63 @@ fn canonicalize_dir(path: &Path) -> Result<PathBuf> {
         bail!("{} is not a directory", canonical.display());
     }
     Ok(canonical)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn read_capped_keeps_everything_under_the_cap() {
+        let data = b"hello world".to_vec();
+        let (bytes, truncated) = read_capped(data.as_slice(), 1024).await.unwrap();
+        assert_eq!(bytes, data);
+        assert!(!truncated);
+    }
+
+    #[tokio::test]
+    async fn read_capped_truncates_and_still_drains_the_stream() {
+        let data = vec![b'x'; 10_000];
+        let (bytes, truncated) = read_capped(data.as_slice(), 100).await.unwrap();
+        assert_eq!(bytes.len(), 100);
+        assert!(bytes.iter().all(|&b| b == b'x'));
+        assert!(truncated);
+    }
+
+    #[tokio::test]
+    async fn read_capped_exact_boundary_is_not_truncated() {
+        let data = vec![b'y'; 256];
+        let (bytes, truncated) = read_capped(data.as_slice(), 256).await.unwrap();
+        assert_eq!(bytes.len(), 256);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn mark_truncated_appends_a_visible_marker_without_hiding_the_original_bytes() {
+        let original = b"partial output".to_vec();
+        let marked = mark_truncated(original.clone(), 42);
+        assert!(marked.starts_with(&original));
+        let marker = String::from_utf8(marked[original.len()..].to_vec()).unwrap();
+        assert!(marker.contains("truncated"));
+        assert!(marker.contains("42"));
+    }
+
+    #[test]
+    fn max_plugin_output_bytes_falls_back_to_default_on_invalid_env() {
+        // SAFETY: this test's own env var, not read by any other test
+        // concurrently - `cargo test` runs each test in its own thread, but
+        // env vars are process-global, so a name no other test touches
+        // avoids cross-test interference regardless.
+        unsafe {
+            env::set_var("SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES", "not-a-number");
+        }
+        assert_eq!(max_plugin_output_bytes(), DEFAULT_MAX_PLUGIN_OUTPUT_BYTES);
+        unsafe {
+            env::set_var("SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES", "12345");
+        }
+        assert_eq!(max_plugin_output_bytes(), 12345);
+        unsafe {
+            env::remove_var("SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES");
+        }
+    }
 }

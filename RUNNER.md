@@ -412,6 +412,28 @@ Containers run with `--cap-drop ALL`, `--security-opt no-new-privileges`, a
 read-only root filesystem, a non-root user, resource limits, no stdin, and only
 the individual run artifact directory mounted writable at `/artifacts`.
 
+### Host-side resource bounds
+
+A plugin's `docker.memory`/`docker.cpus`/`docker.timeout_seconds` bound the
+*container's own* resource use, but don't bound what the slickchook service
+or runner hold in host memory/disk while a run executes — a container can
+stream far more through stdout/stderr or write far more to the bind-mounted
+`/artifacts` directory than its own memory limit would suggest, since neither
+a pipe nor a host-backed bind mount counts against a container's `--memory`
+limit the way data held in its own heap would. The service bounds these
+separately, with generous defaults sized not to affect any realistic plugin
+output — override only for an unusually output-heavy deployment:
+
+| Environment variable | Default | Bounds |
+| --- | --- | --- |
+| `SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES` | 256 MiB | Per-stream cap on a plugin container's stdout/stderr the runner holds in memory. The stream is still fully drained past the cap (so a chatty container never blocks on a full pipe); bytes beyond it are discarded and a visible `[slickchook runner: output truncated...]` marker is appended. |
+| `SLICKCHOOK_MAX_CONCURRENT_RUNS` | 8 | Total plugin containers allowed to execute at once, across every caller and both `run_plugin`/`start_plugin`. A run beyond this limit waits for a slot rather than failing. |
+| `SLICKCHOOK_MAX_ARTIFACT_BYTES` | 1 GiB | Flag-only threshold on one run's total `/artifacts` size. An oversized run is logged and reported (`artifact_bytes`/`artifact_oversized` in the result) but never deleted or truncated — this is a visibility signal, not an enforced quota; a true preventive quota needs filesystem-level support (e.g. an XFS project quota on the artifacts volume), which is a deployment decision outside the application. |
+| `SLICKCHOOK_JOB_RETENTION_SECONDS` | 3600 | How long a finished `start_plugin` job's status/result stays queryable via `plugin_status` before being evicted. A still-running job is never evicted regardless of age. |
+
+See `SECURITY_CONSIDERATIONS.md`'s SC-021 for the full reasoning (target-influenced
+output volume as a host-availability risk, not a containment bypass).
+
 ## Configuring plugin API keys and secrets
 
 Some plugins need a persistent credential for an external service they call
