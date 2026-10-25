@@ -1,0 +1,119 @@
+name = "h3fuzz"
+container = "slickchook-plugin/h3fuzz:local"
+description = """
+Runs Assetnote's h3fuzz, a content-discovery fuzzer forked from ffuf that negotiates HTTP/3 automatically (falling back to HTTP/2, then HTTP/1.1) and accepts the same wordlist/matcher/filter flags ffuf operators already know. Complements kiterunner (bounded API route corpus) and feroxbuster (recursive-capable directory brute force): use h3fuzz where the ffuf FUZZ-keyword model fits better - virtual-host discovery, query-parameter or POST-body fuzzing, or a header value - not just path segments.
+
+target must contain the literal keyword FUZZ at the exact injection point, e.g. https://target.example/FUZZ for path discovery or https://target.example/ with header "Host: FUZZ.target.example" for vhost discovery. h3fuzz does not add FUZZ automatically - a target without it fuzzes nothing.
+
+Bundles the same three small reviewed wordlists as this fleet's feroxbuster plugin (selectable via wordlist), not h3fuzz's own bundled final.txt (233k lines, ~2.7MB, not reviewed here) - the same bounded-wordlist rationale SECLists exclusion already documents for feroxbuster applies here too. threads and rate_limit are tunable: lower both for a fragile target or quieter footprint, raise them for faster coverage of a large authorized scope. autocalibrate is worth enabling against any target that might return 200 for nonexistent paths (soft-404), since that otherwise floods results with false positives.
+
+This manifest intentionally does not expose h3fuzz's acknowledged HTTP/3 high-rate ceiling-test policy (the flags behind its documented 100k+ req/s mode) - that mode is an explicit load-testing feature, out of scope for a bounded recon plugin, and is not reachable through this plugin's declared options regardless of input.
+"""
+fixed_args = ["-noninteractive", "-s", "-of", "json", "-o", "/artifacts/result.json"]
+
+[[assets]]
+source = "wordlist.txt"
+dest = "/wordlist.txt"
+min_size_bytes = 50
+description = "Small reviewed generic content-discovery wordlist bundled into the image (same list as feroxbuster's). Default wordlist."
+
+[[assets]]
+source = "wordlist-cms.txt"
+dest = "/wordlist-cms.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist of common WordPress/Joomla/Drupal paths, for use once fingerprinting identifies one of those CMSes."
+
+[[assets]]
+source = "wordlist-api.txt"
+dest = "/wordlist-api.txt"
+min_size_bytes = 50
+description = "Small reviewed wordlist of common REST/GraphQL/API path segments, for use once fingerprinting identifies an API-shaped target."
+
+[[options]]
+name = "target"
+description = "Authorized HTTP or HTTPS URL containing the literal FUZZ keyword at the injection point, for example https://target.example/FUZZ."
+required = true
+flag = "-u"
+
+[[options]]
+name = "wordlist"
+description = "Which bundled wordlist to use: /wordlist.txt (generic, default), /wordlist-cms.txt (WordPress/Joomla/Drupal), or /wordlist-api.txt (REST/GraphQL/API). Choose based on prior fingerprinting rather than always taking the default."
+required = false
+flag = "-w"
+default = "/wordlist.txt"
+
+[[options]]
+name = "threads"
+description = "Concurrent worker threads. Lower for a fragile or rate-limited target; raise for faster coverage of a large authorized scope. Default 10."
+required = false
+flag = "-t"
+default = 10
+
+[[options]]
+name = "rate_limit"
+description = "Maximum requests per second across all workers. Lower is quieter and less likely to trip a WAF rate-based rule. 0 means unlimited. Default 20."
+required = false
+flag = "-rate"
+default = 20
+
+[[options]]
+name = "extensions"
+description = "Comma-separated file extensions appended to each wordlist entry, for example js,html,php."
+required = false
+flag = "-e"
+
+[[options]]
+name = "match_codes"
+description = "Comma-separated response status codes (or ranges) to treat as a match. Default is h3fuzz's own 200-299,301,302,307,401,403,405,500."
+required = false
+flag = "-mc"
+
+[[options]]
+name = "filter_codes"
+description = "Comma-separated response status codes (or ranges) to exclude from matches, for example 404."
+required = false
+flag = "-fc"
+
+[[options]]
+name = "filter_size"
+description = "Comma-separated response sizes (or ranges) to exclude from matches - useful for filtering a constant-size soft-404 body manually."
+required = false
+flag = "-fs"
+
+[[options]]
+name = "autocalibrate"
+description = "Automatically learn and filter the target's baseline (e.g. soft-404) responses before fuzzing. Recommended whenever a target might return 200 for nonexistent paths."
+required = false
+flag = "-ac"
+
+[[options]]
+name = "method"
+description = "HTTP method to use. Default GET."
+required = false
+flag = "-X"
+
+[[options]]
+name = "data"
+description = "Request body, for example a JSON template containing FUZZ for POST-body parameter fuzzing."
+required = false
+flag = "-d"
+
+[[options]]
+name = "header"
+description = "One request header as a literal \"Name: Value\" string, for example \"Authorization: Bearer <token>\" or \"User-Agent: <value>\" to override h3fuzz's default user-agent."
+required = false
+flag = "-H"
+
+[[options]]
+name = "force_http1"
+description = "Skip HTTP/3 and HTTP/2 negotiation and force HTTP/1.1 - useful to confirm a finding isn't specific to h3fuzz's protocol negotiation."
+required = false
+flag = "-http1"
+
+[docker]
+network = "bridge"
+memory = "512m"
+cpus = "1"
+pids_limit = 128
+timeout_seconds = 300
+tmpfs = ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
