@@ -177,16 +177,26 @@ Recommended hardening:
 
 ### SC-006: Artifact filename interference
 
-Status: Mitigated in source; deployment pending  
+Status: Resolved, 2026-10-25 (see SC-022 for what actually closed this and
+why the original mitigation described below didn't)
 Severity: Medium
 
 Plugin containers share the per-run artifact directory. A container could
 create or replace the reserved `stdout.txt` or `stderr.txt` paths before the
-server records process output. Artifact recording now rejects symlinks and
-non-regular files and writes through an explicit truncating file handle.
+server records process output.
 
-The updated Slickchook server binary must be deployed before this mitigation is
-active on a running instance.
+This entry originally claimed artifact recording "rejects symlinks and
+non-regular files" via a `path.exists()` pre-check before an explicit
+truncating open. An independent security review (2026-10-20, see SC-022)
+found that claim was stronger than the code actually supported: `exists()`
+returns `false` for a *dangling* symlink, so that specific pre-check never
+ran for one, and the subsequent `create(true).truncate(true)` open followed
+it and created the destination as the service user - demonstrated directly
+against the real `write_artifact` function body, not just reasoned about in
+the abstract. SC-022 replaced the check-then-open sequence with an atomic
+`create_new` open, which has no such gap. Kept as a reminder that a
+"mitigated" status needs the same verification rigor the mitigation itself
+got, not just a plausible-sounding description.
 
 ### SC-007: Offline analyzer database supply chain
 
@@ -681,6 +691,50 @@ change. Not independently load-tested against a real excessive-output
 target in this sandbox (no Docker socket access) — needs confirming on a
 real deployment that a deliberately oversized response actually gets capped
 end to end.
+
+### SC-022: `write_artifact` followed a dangling symlink (R3 of the 2026-10-20 independent review)
+
+Status: Resolved, 2026-10-25
+Severity: High-impact containment weakness, conditional on a writer able to
+plant a filesystem entry in the artifact directory
+
+The same independent review (see SC-021/R7) found that `write_artifact` -
+used to persist a run's `stdout.txt`/`stderr.txt` - only called
+`fs::symlink_metadata` inside `if path.exists()`. `exists()` follows
+symlinks and returns `false` for a *dangling* one, so a plugin container
+(the only other writer to the run's `/artifacts` bind mount) could plant
+`stdout.txt` as a symlink to a nonexistent path outside the run directory
+before exiting; the pre-check never ran, and the subsequent
+`OpenOptions::create(true).truncate(true).open(path)` followed the link and
+created its destination as the slickchook service user. Even when the
+target path already existed as a regular file, the check and the open were
+two separate operations, leaving a window for a concurrent writer to swap
+it for a symlink in between. This directly contradicted SC-006's
+"mitigated" claim (now corrected to point here).
+
+Validated directly against the real function body before and after the
+fix - a planted dangling symlink genuinely caused a file to be created
+outside the run directory under the old code, and the three new unit tests
+below both reproduce that and confirm it no longer happens.
+
+Fixed by replacing the check-then-open sequence with a single atomic
+`OpenOptions::new().create_new(true)` open (POSIX `O_CREAT|O_EXCL`):
+`stdout.txt`/`stderr.txt` always land in a brand-new, just-created artifact
+directory, so there is never a legitimate reason for anything to already
+exist at that path. `create_new` fails on *anything* already there - a
+symlink (dangling or not), a regular file, a FIFO - in one indivisible
+syscall, which closes the TOCTOU window entirely rather than narrowing it;
+there is no longer a separate check step for a concurrent writer to win a
+race against.
+
+Validation: `cargo build --locked --release --bins` and `cargo test --lib`
+(15/15 - three new: `write_artifact_creates_a_brand_new_file`,
+`write_artifact_refuses_a_dangling_symlink`,
+`write_artifact_refuses_an_already_existing_regular_file`). The
+dangling-symlink test is a direct regression test for this exact bug - it
+fails under the old `path.exists()`-based code (confirmed by reasoning
+through the old logic against it, since the old code is no longer present
+to re-run) and passes under the fix.
 
 ## Reporting and maintenance
 

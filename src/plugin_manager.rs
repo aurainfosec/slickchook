@@ -996,24 +996,34 @@ fn diagnostic_preview(bytes: &[u8]) -> String {
     output_preview(text.as_bytes())
 }
 
+/// Writes `bytes` to a brand-new file at `path` - `stdout.txt`/`stderr.txt`
+/// always land in a just-created, freshly-UUID'd artifact directory, so
+/// there is never a legitimate reason for anything to already exist there.
+/// `create_new` (POSIX `O_CREAT|O_EXCL`) is the entire fix, not a
+/// convenience: the kernel checks and creates atomically in one syscall, so
+/// there is no separate check-then-open window for a concurrent writer to
+/// exploit - and no dangling-symlink blind spot either, since `create_new`
+/// fails on *anything* already at that path (a symlink, dangling or not, a
+/// regular file, a FIFO), unlike the previous `path.exists()` pre-check,
+/// which returns `false` for a dangling symlink and let `OpenOptions`'s
+/// separate `create(true).truncate(true)` open silently follow and create
+/// through it. A plugin container is the only other entity with write
+/// access to this bind mount, so an already-existing path here means one
+/// planted something before exiting - exactly the case this must refuse,
+/// not follow or overwrite (see SECURITY_REVIEW_2026-10-20.md's R3).
 fn write_artifact(path: &Path, bytes: &[u8]) -> Result<()> {
-    if path.exists() {
-        let metadata = fs::symlink_metadata(path)
-            .with_context(|| format!("failed to inspect artifact {}", path.display()))?;
-        if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-            bail!(
-                "refusing to overwrite non-regular artifact {}",
-                path.display()
-            );
+    let mut file = match fs::OpenOptions::new().create_new(true).write(true).open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => bail!(
+            "refusing to write artifact {}: something already exists at this path (expected a \
+             brand-new file; a plugin container may have planted it)",
+            path.display()
+        ),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to open artifact {}", path.display()));
         }
-    }
-
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)
-        .with_context(|| format!("failed to open artifact {}", path.display()))?;
+    };
     use std::io::Write as _;
     file.write_all(bytes)
         .with_context(|| format!("failed to write artifact {}", path.display()))?;
@@ -1403,6 +1413,66 @@ mod tests {
                 .iter()
                 .any(|path| path.replace('\\', "/").ends_with("screenshots/shot.png")),
             "expected a nested file to be discoverable, got: {artifacts:?}"
+        );
+    }
+
+    #[test]
+    fn write_artifact_creates_a_brand_new_file() {
+        let dir = std::env::temp_dir().join(format!("slickchook-wa-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("stdout.txt");
+
+        write_artifact(&path, b"hello").unwrap();
+        let contents = std::fs::read(&path).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(contents, b"hello");
+    }
+
+    /// Reproduces SECURITY_REVIEW_2026-10-20.md's R3 directly: a plugin
+    /// container (the only other writer to this bind mount) plants a
+    /// dangling symlink at the exact path slickchook is about to write its
+    /// own stdout/stderr artifact to, pointing outside the run's own
+    /// directory. The old `path.exists()` pre-check returned `false` for
+    /// this (a dangling symlink doesn't "exist" by that check), so the
+    /// subsequent `create(true).truncate(true)` open followed the link and
+    /// created the outside-run destination. `write_artifact` must now
+    /// refuse outright instead.
+    #[test]
+    fn write_artifact_refuses_a_dangling_symlink() {
+        let dir = std::env::temp_dir().join(format!("slickchook-wa-dangle-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let outside_target = dir.join("outside-the-run.txt");
+        let planted_link = dir.join("stdout.txt");
+        std::os::unix::fs::symlink(&outside_target, &planted_link).unwrap();
+        assert!(!outside_target.exists(), "precondition: link must be dangling");
+
+        let result = write_artifact(&planted_link, b"attacker-controlled bytes");
+        let outside_was_created = outside_target.exists();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(result.is_err(), "expected write_artifact to refuse a dangling symlink");
+        assert!(
+            !outside_was_created,
+            "write_artifact must not create the symlink's target outside the run"
+        );
+    }
+
+    #[test]
+    fn write_artifact_refuses_an_already_existing_regular_file() {
+        let dir = std::env::temp_dir().join(format!("slickchook-wa-exists-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("stdout.txt");
+        std::fs::write(&path, b"already here").unwrap();
+
+        let result = write_artifact(&path, b"new bytes");
+        let contents = std::fs::read(&path).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(result.is_err(), "expected write_artifact to refuse an existing file");
+        assert_eq!(
+            contents, b"already here",
+            "the existing file's contents must be untouched"
         );
     }
 

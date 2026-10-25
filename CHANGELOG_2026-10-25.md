@@ -1,5 +1,39 @@
 # Changelog — 2026-10-25
 
+- Fixed `write_artifact`'s dangling-symlink bypass, identified as R3 in the
+  independent security review (`SECURITY_REVIEW_2026-10-20.md`, not
+  committed to this repository). Second increment in that review's own
+  priority order (R7 first, this is P2). Spot-checked and confirmed real
+  against the live source before fixing, via a direct regression test
+  reproducing the planted-dangling-symlink scenario.
+  - `write_artifact` only called `fs::symlink_metadata` inside
+    `if path.exists()` - which returns `false` for a dangling symlink, so a
+    plugin container (the only other writer to a run's `/artifacts` bind
+    mount) could plant `stdout.txt`/`stderr.txt` as a symlink to a
+    nonexistent path outside the run directory, skip the check entirely,
+    and have the subsequent `create(true).truncate(true)` open follow it
+    and create the destination as the slickchook service user. Even for an
+    already-existing regular file, the check and the open were separate
+    operations - a window for a concurrent writer to swap it for a symlink
+    in between.
+  - Fixed by replacing the whole check-then-open sequence with one atomic
+    `create_new(true)` open (`O_CREAT|O_EXCL`): `stdout.txt`/`stderr.txt`
+    always land in a brand-new artifact directory, so anything already at
+    that path - symlink, dangling or not, regular file, FIFO - means it was
+    planted, and `create_new` now refuses it outright in a single
+    indivisible syscall rather than leaving any check-then-act window at
+    all.
+  - Corrected SC-006 in `SECURITY_CONSIDERATIONS.md`, which had claimed
+    this was already mitigated - the review demonstrated that claim was
+    stronger than the code supported. New SC-022 documents the real finding
+    and fix.
+  - Version bumped to 0.3.4 (compiled Rust change - needs the full `.deb`
+    rebuild/reinstall path, not a plugin-only install).
+  - Verified: `cargo build --locked --release --bins` and `cargo test --lib`
+    (15/15 - three new tests, including a direct regression test for the
+    exact dangling-symlink scenario that confirms both the original bug's
+    mechanism and that the fix closes it) clean.
+
 - Bounded several previously-unbounded host-side resource exposures
   identified as R7 in an independent security review of this codebase
   (`SECURITY_REVIEW_2026-10-20.md`, not committed to this repository -
