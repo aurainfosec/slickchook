@@ -20,6 +20,42 @@ use uuid::Uuid;
 const DEFAULT_TIMEOUT_SECONDS: u64 = 300;
 const ARTIFACT_READ_LIMIT: usize = 5 * 1024 * 1024;
 const MAX_RUN_LIST_LIMIT: i64 = 200;
+/// Hard safety backstop on recursive artifact listing, not an operational
+/// tuning knob - no legitimate plugin output (gowitness's largest screenshot
+/// batches included) comes remotely close to this many files in one run's
+/// artifact directory. Guards against a compromised/malicious plugin
+/// deliberately creating a huge or deeply nested tree.
+const MAX_ARTIFACT_LIST_ENTRIES: usize = 50_000;
+/// Default cap on how many plugin runs may have a container actively
+/// executing at once, across both `run_plugin` and `start_plugin`. Generous
+/// for a single-operator deployment's realistic concurrency, bounded against
+/// unlimited parallel runs each contributing their own host memory/disk
+/// exposure (see SECURITY_REVIEW_2026-10-20.md's R7). Override with
+/// `SLICKCHOOK_MAX_CONCURRENT_RUNS`.
+const DEFAULT_MAX_CONCURRENT_RUNS: usize = 8;
+/// Default total-size flag threshold for one run's `/artifacts` directory.
+/// Flag-only (see `check_artifact_size`): generous enough that no legitimate
+/// run - including a large gowitness screenshot batch or a broad crawl's
+/// JSONL - should ever cross it, while still surfacing a genuinely
+/// excessive one instead of leaving it silently unbounded. Override with
+/// `SLICKCHOOK_MAX_ARTIFACT_BYTES`.
+const DEFAULT_MAX_ARTIFACT_BYTES: u64 = 1024 * 1024 * 1024;
+
+fn max_concurrent_runs() -> usize {
+    env::var("SLICKCHOOK_MAX_CONCURRENT_RUNS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|&value| value > 0)
+        .unwrap_or(DEFAULT_MAX_CONCURRENT_RUNS)
+}
+
+fn max_artifact_bytes() -> u64 {
+    env::var("SLICKCHOOK_MAX_ARTIFACT_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|&value| value > 0)
+        .unwrap_or(DEFAULT_MAX_ARTIFACT_BYTES)
+}
 
 #[derive(Clone)]
 pub struct PluginManager {
@@ -28,6 +64,11 @@ pub struct PluginManager {
     store: Arc<PostgresStore>,
     runner_path: PathBuf,
     plugins: Arc<RwLock<HashMap<String, Plugin>>>,
+    /// Bounds the number of plugin containers running at once across every
+    /// caller and both execution APIs (`run_plugin`, `start_plugin`) - see
+    /// `DEFAULT_MAX_CONCURRENT_RUNS`. A run waits here, before the runner is
+    /// even spawned, if the limit is already held.
+    run_slots: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Clone, Debug)]
@@ -214,6 +255,11 @@ pub struct PluginRunResult {
     pub artifacts: Vec<String>,
     pub stdout_preview: String,
     pub stderr_preview: String,
+    /// Total bytes recursively under this run's `/artifacts` directory.
+    pub artifact_bytes: u64,
+    /// Whether `artifact_bytes` exceeds the configured limit - flagged for
+    /// operator review, never auto-deleted. See `check_artifact_size`.
+    pub artifact_oversized: bool,
 }
 
 #[allow(dead_code)]
@@ -245,6 +291,7 @@ impl PluginManager {
             store,
             runner_path: runner_path(),
             plugins: Arc::new(RwLock::new(HashMap::new())),
+            run_slots: Arc::new(tokio::sync::Semaphore::new(max_concurrent_runs())),
         };
 
         fs::create_dir_all(&manager.plugins_dir)
@@ -316,6 +363,15 @@ impl PluginManager {
                 missing_secrets.join(", ")
             );
         }
+        // Bounds total concurrent containers across every caller and both
+        // execution APIs (`run_plugin`, `start_plugin`) - see `run_slots`'s
+        // doc comment. Held for the entire run, released on drop whichever
+        // way this function returns.
+        let _run_permit = self
+            .run_slots
+            .acquire()
+            .await
+            .map_err(|_| anyhow!("run concurrency limiter closed unexpectedly"))?;
         let run_id = Uuid::new_v4().to_string();
         let started_at = Utc::now().to_rfc3339();
         let artifact_dir = self.artifacts_dir.join(&run_id);
@@ -379,6 +435,7 @@ impl PluginManager {
         write_artifact(&stdout_path, &stdout)?;
         write_artifact(&stderr_path, &stderr)?;
         let artifacts = list_artifacts(&artifact_dir)?;
+        let (artifact_bytes, artifact_oversized) = check_artifact_size(&run_id, &artifact_dir);
         let stdout_preview = output_preview(&stdout);
         let stderr_preview = diagnostic_preview(&stderr);
 
@@ -413,6 +470,8 @@ impl PluginManager {
             artifacts,
             stdout_preview,
             stderr_preview,
+            artifact_bytes,
+            artifact_oversized,
         })
     }
 
@@ -981,10 +1040,79 @@ fn list_artifacts(artifact_dir: &Path) -> Result<Vec<String>> {
             } else if file_type.is_dir() {
                 pending.push(entry.path());
             }
+            if artifacts.len() + pending.len() > MAX_ARTIFACT_LIST_ENTRIES {
+                bail!(
+                    "artifact directory {} has more than {MAX_ARTIFACT_LIST_ENTRIES} entries; refusing to list further",
+                    artifact_dir.display()
+                );
+            }
         }
     }
     artifacts.sort();
     Ok(artifacts)
+}
+
+/// Recursively sums the byte size of every regular file under `dir`
+/// (following the same file-vs-directory split as `list_artifacts`, and
+/// capped at the same entry count so a pathological tree can't make this
+/// walk unbounded either). Used only to flag an oversized run's artifact
+/// directory after the fact - see `check_artifact_size` - not to enforce a
+/// hard quota while the plugin container is still writing.
+fn artifact_dir_size(dir: &Path) -> Result<u64> {
+    let mut total: u64 = 0;
+    let mut entries_seen: usize = 0;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in
+            fs::read_dir(&dir).with_context(|| format!("failed to read {}", dir.display()))?
+        {
+            let entry = entry?;
+            entries_seen += 1;
+            if entries_seen > MAX_ARTIFACT_LIST_ENTRIES {
+                bail!(
+                    "artifact directory {} has more than {MAX_ARTIFACT_LIST_ENTRIES} entries; refusing to size it further",
+                    dir.display()
+                );
+            }
+            let file_type = entry.file_type()?;
+            if file_type.is_file() {
+                total += entry.metadata()?.len();
+            } else if file_type.is_dir() {
+                pending.push(entry.path());
+            }
+        }
+    }
+    Ok(total)
+}
+
+/// Flags (never deletes - see SECURITY_REVIEW_2026-10-20.md's R7) a run
+/// whose total artifact bytes exceed `max_artifact_bytes()`. A generous
+/// default means this should only ever fire for a genuinely excessive
+/// amount of target-influenced output, not a legitimately large scan - see
+/// that constant's doc comment. Errors sizing the directory are logged, not
+/// propagated: a run's own result matters more than this bookkeeping.
+fn check_artifact_size(run_id: &str, artifact_dir: &Path) -> (u64, bool) {
+    match artifact_dir_size(artifact_dir) {
+        Ok(bytes) => {
+            let limit = max_artifact_bytes();
+            let oversized = bytes > limit;
+            if oversized {
+                warn!(
+                    run_id,
+                    artifact_dir = %artifact_dir.display(),
+                    bytes,
+                    limit,
+                    "run's artifact directory exceeds the configured size limit; not deleted, \
+                     flagged for operator review"
+                );
+            }
+            (bytes, oversized)
+        }
+        Err(error) => {
+            warn!(run_id, artifact_dir = %artifact_dir.display(), %error, "failed to size run's artifact directory");
+            (0, false)
+        }
+    }
 }
 
 fn runner_path() -> PathBuf {

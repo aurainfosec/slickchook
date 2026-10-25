@@ -10,8 +10,50 @@ use serde::Deserialize;
 use slickchook::plugin_manager::{ArtifactContent, PluginManager};
 use slickchook::storage::DatabaseTls;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, sync::Mutex};
 use uuid::Uuid;
+
+/// How long a finished async job's status/result stays queryable via
+/// `plugin_status` before `spawn_job_sweeper` evicts it. Generous for a
+/// client that's slow to poll, bounded against a session that calls
+/// `start_plugin` many times and never calls `plugin_status`/`plugin_cancel`
+/// on the results (see SECURITY_REVIEW_2026-10-20.md's R7). Override with
+/// `SLICKCHOOK_JOB_RETENTION_SECONDS`.
+const DEFAULT_JOB_RETENTION_SECONDS: u64 = 3600;
+
+fn job_retention() -> Duration {
+    std::env::var("SLICKCHOOK_JOB_RETENTION_SECONDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(DEFAULT_JOB_RETENTION_SECONDS))
+}
+
+/// Periodically evicts terminal (completed/cancelled) job entries older than
+/// `job_retention()` from `jobs`, so a session that starts many async jobs
+/// without ever polling/cancelling them doesn't grow this map forever. An
+/// entry still `running` (`finished_at: None`) is never evicted here
+/// regardless of age.
+fn spawn_job_sweeper(jobs: Arc<Mutex<HashMap<String, (Arc<Mutex<JobState>>, tokio::task::AbortHandle)>>>) {
+    let retention = job_retention();
+    let sweep_interval = Duration::from_secs(60).min(retention).max(Duration::from_secs(1));
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(sweep_interval);
+        loop {
+            interval.tick().await;
+            if let Ok(mut guard) = jobs.lock() {
+                guard.retain(|_, (state, _)| match state.lock() {
+                    Ok(state) => match state.finished_at {
+                        Some(finished_at) => finished_at.elapsed() < retention,
+                        None => true,
+                    },
+                    Err(_) => true,
+                });
+            }
+        }
+    });
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RunPluginRequest {
@@ -53,6 +95,10 @@ struct ReadArtifactRequest {
 struct JobState {
     status: String,
     result: Option<String>,
+    /// Set the moment this job reaches a terminal state (completed or
+    /// cancelled); `None` while still running. Drives `spawn_job_sweeper`'s
+    /// eviction and nothing else.
+    finished_at: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -60,15 +106,25 @@ struct JobState {
 struct ReconServer {
     tool_router: ToolRouter<Self>,
     plugin_manager: Arc<PluginManager>,
-    jobs: Arc<Mutex<HashMap<String, (JobState, tokio::task::AbortHandle)>>>,
+    /// Each job's `JobState` lives behind its own `Arc<Mutex<_>>`, created
+    /// and handed to its spawned task *before* that task is spawned, so the
+    /// task always has somewhere to record its result regardless of exactly
+    /// when this outer map gets its entry - closing a real race where a very
+    /// fast completion could otherwise finish and look itself up here before
+    /// `start_plugin` had inserted it, silently discard its own result, and
+    /// leave a permanent dangling "running" entry behind (see
+    /// SECURITY_REVIEW_2026-10-20.md's R9).
+    jobs: Arc<Mutex<HashMap<String, (Arc<Mutex<JobState>>, tokio::task::AbortHandle)>>>,
 }
 
 impl ReconServer {
     fn new(plugin_manager: Arc<PluginManager>) -> Self {
+        let jobs = Arc::new(Mutex::new(HashMap::new()));
+        spawn_job_sweeper(Arc::clone(&jobs));
         Self {
             tool_router: Self::tool_router(),
             plugin_manager,
-            jobs: Arc::new(Mutex::new(HashMap::new())),
+            jobs,
         }
     }
 }
@@ -104,35 +160,32 @@ impl ReconServer {
     ) -> Result<String, rmcp::ErrorData> {
         let job_id = Uuid::new_v4().to_string();
         let manager = Arc::clone(&self.plugin_manager);
-        let jobs = Arc::clone(&self.jobs);
-        let id = job_id.clone();
+        // Created and fully initialized before the task is spawned - see
+        // `jobs`'s doc comment for why this ordering is what actually closes
+        // the R9 race, not just moving the `insert` call earlier.
+        let state = Arc::new(Mutex::new(JobState {
+            status: "running".into(),
+            result: None,
+            finished_at: None,
+        }));
+        let task_state = Arc::clone(&state);
         let handle = tokio::spawn(async move {
             let result = manager
                 .run_plugin_with_input(&plugin, serde_json::Value::Object(input), input_run_id.as_deref())
                 .await
                 .map(|value| serde_json::to_string_pretty(&value).unwrap_or_else(|e| e.to_string()))
                 .unwrap_or_else(|e| format!("{{\"error\":{}}}", serde_json::json!(e.to_string())));
-            if let Ok(mut guard) = jobs.lock() {
-                if let Some((state, _)) = guard.get_mut(&id) {
-                    state.status = "completed".into();
-                    state.result = Some(result);
-                }
+            if let Ok(mut guard) = task_state.lock() {
+                guard.status = "completed".into();
+                guard.result = Some(result);
+                guard.finished_at = Some(Instant::now());
             }
         });
         let abort = handle.abort_handle();
         self.jobs
             .lock()
             .map_err(|_| rmcp::ErrorData::internal_error("job lock poisoned", None))?
-            .insert(
-                job_id.clone(),
-                (
-                    JobState {
-                        status: "running".into(),
-                        result: None,
-                    },
-                    abort,
-                ),
-            );
+            .insert(job_id.clone(), (state, abort));
         Ok(serde_json::json!({"job_id": job_id, "status": "running"}).to_string())
     }
 
@@ -148,6 +201,9 @@ impl ReconServer {
         let (state, _) = guard
             .get(&job_id)
             .ok_or_else(|| rmcp::ErrorData::invalid_params("unknown job", None))?;
+        let state = state
+            .lock()
+            .map_err(|_| rmcp::ErrorData::internal_error("job state lock poisoned", None))?;
         Ok(
             serde_json::json!({"job_id": job_id, "status": state.status, "result": state.result})
                 .to_string(),
@@ -159,15 +215,19 @@ impl ReconServer {
         &self,
         Parameters(JobRequest { job_id }): Parameters<JobRequest>,
     ) -> Result<String, rmcp::ErrorData> {
-        let mut guard = self
+        let guard = self
             .jobs
             .lock()
             .map_err(|_| rmcp::ErrorData::internal_error("job lock poisoned", None))?;
         let (state, abort) = guard
-            .get_mut(&job_id)
+            .get(&job_id)
             .ok_or_else(|| rmcp::ErrorData::invalid_params("unknown job", None))?;
         abort.abort();
+        let mut state = state
+            .lock()
+            .map_err(|_| rmcp::ErrorData::internal_error("job state lock poisoned", None))?;
         state.status = "cancelled".into();
+        state.finished_at = Some(Instant::now());
         Ok(serde_json::json!({"job_id": job_id, "status": state.status}).to_string())
     }
 

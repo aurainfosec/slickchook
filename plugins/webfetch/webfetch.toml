@@ -1,7 +1,7 @@
 name = "webfetch"
 container = "slickchook-plugin/webfetch:local"
-description = "Fetches one explicitly authorized HTTP(S) URL into the per-run input staging directory for offline analysis."
-fixed_args = ["-q", "--no-check-certificate", "--timeout=20", "--tries=1", "-O", "/input/index.html"]
+description = "Fetches one explicitly authorized HTTP(S) URL into the per-run input staging directory for offline analysis. Capped at 100MB (wget's --quota) against a target serving an excessive response - generous enough for any realistic single page, bounded against an unbounded one."
+fixed_args = ["-q", "--no-check-certificate", "--timeout=20", "--tries=1", "--quota=100m", "-O", "/input/index.html"]
 
 [[options]]
 name = "user_agent"

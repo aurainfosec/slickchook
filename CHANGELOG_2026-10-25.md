@@ -1,5 +1,67 @@
 # Changelog — 2026-10-25
 
+- Bounded several previously-unbounded host-side resource exposures
+  identified as R7 in an independent security review of this codebase
+  (`SECURITY_REVIEW_2026-10-20.md`, not committed to this repository -
+  reviewed a different, git-less snapshot of the source). Working through
+  the review's own findings in its stated priority order; this is the first
+  (P1) increment. Spot-checked the review's claims against the current
+  source before trusting them - e.g. confirmed `slickchook-runner`'s
+  `docker run` invocation really did use `Command::output()`'s unbounded
+  buffering before changing it.
+  - `slickchook-runner` now captures a plugin container's stdout/stderr
+    through a bounded, fully-draining reader
+    (`SLICKCHOOK_MAX_PLUGIN_OUTPUT_BYTES`, default 256 MiB per stream)
+    instead of `Command::output()`. The stream is still drained to
+    completion past the cap (so a chatty container never blocks on a full
+    pipe) - bytes beyond the cap are discarded, and a visible
+    `[slickchook runner: output truncated...]` marker is appended so
+    truncated output never looks like a complete, unremarkable result.
+  - `httprequest` gained curl's `--max-filesize 104857600` (100 MiB) and
+    `webfetch` gained wget's `--quota=100m` - tool-level caps on the two
+    concrete target-to-unbounded-file routes the review named
+    (`/artifacts/response_body`, `/input/index.html`).
+  - `PluginManager` gained a global concurrency limiter
+    (`tokio::sync::Semaphore`, `SLICKCHOOK_MAX_CONCURRENT_RUNS`, default 8)
+    held for a run's full duration, shared by `run_plugin` and
+    `start_plugin` alike.
+  - `list_artifacts` refuses to walk past 50,000 entries in one run's
+    artifact directory - a hard safety backstop, not a tuning knob.
+  - Each run's total artifact bytes are measured after completion and
+    flagged (`artifact_bytes`/`artifact_oversized` on the result,
+    `SLICKCHOOK_MAX_ARTIFACT_BYTES`, default 1 GiB) - flag-only, never
+    deleted, per explicit instruction not to risk destroying a legitimately
+    large run's output. A real preventive disk quota needs filesystem-level
+    support this application can't provide on its own (e.g. an XFS project
+    quota on the artifacts volume).
+  - `start_plugin`'s async job map now evicts finished jobs after
+    `SLICKCHOOK_JOB_RETENTION_SECONDS` (default 3600s) if a caller never
+    polls them with `plugin_status`.
+  - While restructuring that same job bookkeeping for eviction, also fixed
+    the review's R9: the task was spawned before its map entry existed, so
+    a very fast completion could finish and look itself up before being
+    inserted, silently discard its own result, and leave a
+    permanently-"running" phantom entry behind. Each job's state now lives
+    behind its own `Arc<Mutex<JobState>>` handed to its task before that
+    task is spawned, so timing can no longer cause a dropped result.
+  - All new defaults are generous and operator-overridable via environment
+    variables (see `RUNNER.md`'s new "Host-side resource bounds" section)
+    rather than hardcoded, per explicit instruction to not break
+    legitimate plugin functionality while still bounding genuine abuse.
+  - New SC-021 in `SECURITY_CONSIDERATIONS.md` documents the full finding
+    and fix; bumped "Last reviewed" to today.
+  - Version bumped to 0.3.3 (compiled Rust change - needs the full `.deb`
+    rebuild/reinstall path per `RUNNER.md`, not a plugin-only
+    `slickchook-plugin install`).
+  - Verified: `cargo build --locked --release --bins` and `cargo test --lib`
+    (12/12) clean; new `cargo test --bin slickchook-runner` (5/5) exercises
+    the bounded reader's truncation/non-truncation/exact-boundary behavior
+    directly; `cargo test --bin slickchook` (2/2) confirms the job
+    bookkeeping change didn't regress tool registration. Not independently
+    load-tested against a real excessive-output target in this sandbox (no
+    Docker socket access) - needs confirming on the real deployment that a
+    deliberately large response actually gets capped end to end.
+
 - Added a new `h3fuzz` plugin, per direct request to add a plugin wrapping
   [Assetnote's h3fuzz](https://github.com/assetnote/h3fuzz) ("similar to
   kiterunner and ffuf"). h3fuzz is a content-discovery fuzzer forked from
