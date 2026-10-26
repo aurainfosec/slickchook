@@ -786,6 +786,74 @@ access) — needs confirming on the real deployment that re-running a
 writable fetcher with a prior `input_run_id` is actually rejected end to
 end.
 
+### SC-024: Cancellation didn't actually stop the container, and a cancelled or crashed run left no database record (R6 of the 2026-10-20 independent review)
+
+Status: Resolved, 2026-10-25
+Severity: Medium execution/audit-integrity defect
+
+The same independent review found two related defects in job cancellation
+and crash handling:
+
+- `plugin_cancel` only called `AbortHandle::abort()` on the Rust task
+  `start_plugin` spawned. That stops this process from waiting on the
+  result, but the runner process and its real Docker container are a
+  separate OS process tree entirely - aborting the Tokio task doesn't touch
+  either. The underlying container kept running until its own independent
+  timeout (`docker.timeout_seconds`) elapsed, with no way for a caller to
+  actually stop it sooner.
+- `run_plugin_with_input` only calls `record_run` once, at the very end.
+  A cancelled job (whose task never reaches that point) or a crash left its
+  artifact directory on disk with no corresponding database row at all -
+  invisible to `list_runs_by_target`/`purge_runs_by_target`, an untracked
+  orphan.
+- Separately, `slickchook-runner`'s own timeout-exceeded branch already
+  attempted `docker kill` by the container's deterministic name, but the
+  kill command itself had no timeout and its result was discarded
+  (`let _ = ...`) - a hung `dockerd` could make this hang indefinitely
+  (defeating the point of having a timeout at all), and a failed kill left
+  nothing in the log explaining why the container kept running.
+
+Fixed:
+
+- A new migration (`003_cancellable_runs.sql`) makes `finished_at` nullable
+  and widens the status `CHECK` constraint to include `cancelled`, applied
+  automatically the next time the service starts (`init_schema` runs every
+  startup).
+- `run_plugin_with_input_and_run_id_hook` (what `run_plugin_with_input` now
+  delegates to) records a `status: "running"`, `finished_at: None` row the
+  moment a run's `run_id` is generated - before the runner is even invoked
+  - so every run is visible in the database from the start, cancelled or
+  crashed or not. The existing final `record_run` call upserts over this
+  once the run actually completes.
+- The same call also invokes an `on_run_id` hook synchronously at that
+  point; `start_plugin` uses it to record the `run_id` in the job's shared
+  state immediately, well before the run itself finishes.
+- `plugin_cancel` now calls the new `PluginManager::cancel_run(run_id)` in
+  addition to aborting the task: it sends `docker kill` to the run's
+  deterministic container name directly (`slickchook-<run_id>`, the same
+  name the runner derives from its own `--artifact-dir`) and marks the row
+  `cancelled` via `PostgresStore::mark_run_cancelled`, which only updates a
+  row still `status = 'running'` - a job that happened to finish naturally
+  in the narrow window right before cancellation landed keeps its real
+  result rather than being overwritten.
+- `slickchook-runner`'s own timeout-exceeded `docker kill` is now bounded
+  (10s) and its result is actually checked and logged either way.
+
+Validation: `cargo build --locked --release --bins` and `cargo test --lib`
+(17/17 - one new:
+`postgres_store_marks_a_running_run_cancelled_but_not_a_finished_one`,
+exercising both the running→cancelled transition and the guard against
+overwriting an already-finished run); `cargo test --bin slickchook` (2/2)
+and `cargo test --bin slickchook-runner` (5/5) unaffected. The new
+Postgres-backed test could not actually run in this sandbox (no
+`TEST_POSTGRES_URL`/database available, same limitation as the project's
+existing `postgres_store_*` tests) - it compiles and documents the
+intended behavior, but needs confirming against the real deployment's
+database once the migration has actually applied. Also not independently
+exercised: a live `start_plugin` → `plugin_cancel` call against a real
+long-running container, confirming `docker ps` actually shows it stopped
+promptly rather than lingering until its own timeout.
+
 ## Reporting and maintenance
 
 For every new concern, assign an `SC-NNN` identifier, record its status and

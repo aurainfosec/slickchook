@@ -290,14 +290,44 @@ async fn run() -> Result<()> {
             // running under dockerd; dropping our awaited future only abandons the
             // client, it does not stop the container. Stop it by its deterministic
             // name directly so a slow/hung tool doesn't leak a running container.
-            let _ = Command::new("docker")
-                .arg("kill")
-                .arg(&container_name)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await;
+            // Bounded and its result actually checked - an unbounded kill would
+            // hang this whole process indefinitely if dockerd itself were stuck,
+            // defeating the point of having a timeout at all; a silently ignored
+            // failure would leave a container running with nothing in the log to
+            // explain why (see SECURITY_REVIEW_2026-10-20.md's R6).
+            match time::timeout(
+                Duration::from_secs(10),
+                Command::new("docker")
+                    .arg("kill")
+                    .arg(&container_name)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped())
+                    .output(),
+            )
+            .await
+            {
+                Ok(Ok(output)) if !output.status.success() => {
+                    eprintln!(
+                        "slickchook runner: docker kill for timed-out container {container_name} \
+                         did not succeed: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                Ok(Err(error)) => {
+                    eprintln!(
+                        "slickchook runner: failed to run docker kill for timed-out container \
+                         {container_name}: {error}"
+                    );
+                }
+                Err(_) => {
+                    eprintln!(
+                        "slickchook runner: docker kill for timed-out container \
+                         {container_name} itself timed out"
+                    );
+                }
+                Ok(Ok(_)) => {}
+            }
             fixup_artifact_permissions(&artifact_dir, &manifest.docker).await;
             bail!(
                 "plugin `{}` exceeded timeout of {} seconds",
