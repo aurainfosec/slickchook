@@ -854,6 +854,46 @@ exercised: a live `start_plugin` → `plugin_cancel` call against a real
 long-running container, confirming `docker ps` actually shows it stopped
 promptly rather than lingering until its own timeout.
 
+**Addendum, 2026-10-26**: that last "not independently exercised" caveat
+caught a real bug in the fix above. Live-tested on the real deployment (a
+full-port-range `nmap` scan, started, then cancelled 3 seconds in): the
+database side worked exactly as designed - `list_runs_by_target` correctly
+showed `status: "cancelled"`, a real `finished_at`, and `exit_code: null`
+- but `docker ps` on the host showed the actual container still `Up`
+regardless. `PluginManager::cancel_run` called `Command::new("docker")`
+directly from the *main service process* - which, per this very document's
+own architecture (and `RUNNER.md`), is deliberately never added to the
+`docker` group; only the setgid `slickchook-runner` binary can reach the
+Docker socket at all. The `docker kill` call failed with a permission
+error that `cancel_run`'s own `Ok(Ok(output)) if !output.status.success()`
+branch logged at `debug!` as an assumed-harmless "container may have
+already exited" - exactly the ambiguity the original fix's comment
+worried about, just triggered by the wrong cause.
+
+Fixed by routing the kill through a new `slickchook-runner --kill-container
+<name>` mode instead of calling `docker` directly from the service
+process - the runner's setgid bit is what actually has Docker socket
+access. The mode validates the name matches the exact shape `cancel_run`
+constructs (`slickchook-<run_id>`) before running `docker kill`, the same
+defense-in-depth posture `validate_runner_paths` already applies to
+`--manifest`/`--artifact-dir`.
+
+This was caught, not missed-and-shipped-silently, because the original fix
+was verified against the real deployment rather than assumed correct from
+the database result alone - a reminder that a best-effort error path
+(`Ok(Ok(output)) if !output.status.success()`) can mask a systematic
+failure as convincingly as it reports a genuine edge case, and that
+"the database says it worked" and "the thing the database describes
+actually happened" are two different claims.
+
+Validation: `cargo build --locked --release --bins` and `cargo test --lib`
+(17/17), `cargo test --bin slickchook` (2/2), and `cargo test --bin
+slickchook-runner` (6/6 - one new,
+`is_valid_container_name_to_kill_matches_only_the_real_shape`) all clean.
+Still needs the same live re-check that caught the original bug: cancel
+another real running container and confirm via `docker ps` that it's
+actually gone this time, not just that the database says `cancelled`.
+
 ## Reporting and maintenance
 
 For every new concern, assign an `SC-NNN` identifier, record its status and
