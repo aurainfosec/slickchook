@@ -109,7 +109,9 @@ pub struct StoredRun<'a> {
     pub stderr_path: &'a Path,
     pub input_json: &'a str,
     pub started_at: &'a str,
-    pub finished_at: &'a str,
+    /// `None` for a run recorded before it's finished (status `running`) -
+    /// see `record_run`'s doc comment.
+    pub finished_at: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,7 +124,10 @@ pub struct RunSummary {
     pub exit_code: Option<i32>,
     pub artifact_dir: String,
     pub started_at: String,
-    pub finished_at: String,
+    /// `None` while the run is still recorded as `running` (including a run
+    /// that crashed or was killed without ever reaching its own completion
+    /// path - see `record_run`'s doc comment).
+    pub finished_at: Option<String>,
     /// The exact JSON input a run was called with. Lets a caller checking
     /// `list_runs_by_target` tell whether a past run actually used the
     /// options it's about to use (worth reusing) or different ones (worth
@@ -243,6 +248,7 @@ impl PostgresStore {
         for migration in [
             include_str!("../migrations/postgres/001_initial.sql"),
             include_str!("../migrations/postgres/002_add_run_target.sql"),
+            include_str!("../migrations/postgres/003_cancellable_runs.sql"),
         ] {
             let result = self.client.read().await.batch_execute(migration).await;
             match result {
@@ -370,6 +376,15 @@ impl PostgresStore {
         Ok(rows.iter().map(RunSummary::from_row).collect())
     }
 
+    /// Upserts a run row (`ON CONFLICT (run_id) DO UPDATE`), so the same
+    /// `run_id` can be recorded twice: once with `status: "running"` and
+    /// `finished_at: None` the moment a run starts, and again with its real
+    /// final status/exit_code/finished_at once it completes. Recording the
+    /// first write is what makes a run that's cancelled or crashes before
+    /// reaching its own completion path still show up in
+    /// `list_runs_by_target`/`purge_runs_by_target` instead of leaving an
+    /// orphaned, untracked artifact directory - see
+    /// SECURITY_REVIEW_2026-10-20.md's R6.
     pub async fn record_run(&self, run: &StoredRun<'_>) -> Result<()> {
         const SQL: &str = "INSERT INTO plugin_runs (run_id, plugin, container, target, input_json, status, exit_code, artifact_dir, stdout_artifact, stderr_artifact, started_at, finished_at) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (run_id) DO UPDATE SET plugin=EXCLUDED.plugin, container=EXCLUDED.container, target=EXCLUDED.target, input_json=EXCLUDED.input_json, status=EXCLUDED.status, exit_code=EXCLUDED.exit_code, artifact_dir=EXCLUDED.artifact_dir, stdout_artifact=EXCLUDED.stdout_artifact, stderr_artifact=EXCLUDED.stderr_artifact, started_at=EXCLUDED.started_at, finished_at=EXCLUDED.finished_at";
         let artifact_dir = run.artifact_dir.to_string_lossy().into_owned();
@@ -390,6 +405,29 @@ impl PostgresStore {
             &run.started_at,
             &run.finished_at,
         ];
+        let result = self.client.read().await.execute(SQL, params).await;
+        match result {
+            Ok(_) => {}
+            Err(error) if error.is_closed() => {
+                self.reconnect().await?;
+                self.client.read().await.execute(SQL, params).await?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
+    }
+
+    /// Marks a still-`running` row `cancelled` with `finished_at`. A no-op
+    /// (zero rows affected, not an error) if the run already reached a
+    /// terminal status by the time this runs - a genuine, if narrow, race
+    /// between a job completing naturally and a cancel request landing at
+    /// almost the same moment, which must not overwrite a real completed
+    /// result with `cancelled`. Used by `PluginManager::cancel_run` - see
+    /// SECURITY_REVIEW_2026-10-20.md's R6.
+    pub async fn mark_run_cancelled(&self, run_id: &str, finished_at: &str) -> Result<()> {
+        const SQL: &str =
+            "UPDATE plugin_runs SET status = 'cancelled', finished_at = $2 WHERE run_id = $1 AND status = 'running'";
+        let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&run_id, &finished_at];
         let result = self.client.read().await.execute(SQL, params).await;
         match result {
             Ok(_) => {}
@@ -435,7 +473,7 @@ mod tests {
                 stderr_path: &run.join("stderr"),
                 input_json: "{}",
                 started_at: "2026-01-01T00:00:00Z",
-                finished_at: "2026-01-01T00:00:01Z",
+                finished_at: Some("2026-01-01T00:00:01Z"),
             })
             .await
             .unwrap();
@@ -487,7 +525,7 @@ mod tests {
                 stderr_path: &outside.join("stderr"),
                 input_json: "{}",
                 started_at: "now",
-                finished_at: "now",
+                finished_at: Some("now"),
             })
             .await
             .unwrap();
@@ -519,7 +557,7 @@ mod tests {
                     stderr_path: &symlink_run.join("stderr"),
                     input_json: "{}",
                     started_at: "now",
-                    finished_at: "now",
+                    finished_at: Some("now"),
                 })
                 .await
                 .unwrap();
@@ -527,6 +565,89 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+    }
+
+    /// Exercises the running→cancelled lifecycle `PluginManager::cancel_run`
+    /// relies on (SECURITY_REVIEW_2026-10-20.md's R6): a run recorded with
+    /// `status: "running"`/`finished_at: None` before it completes, then
+    /// marked `cancelled` by `mark_run_cancelled`. Also confirms the inverse
+    /// guard: `mark_run_cancelled` must not overwrite a run that already
+    /// reached a real terminal status by the time it runs - the narrow race
+    /// between a job completing naturally and a cancel request landing at
+    /// nearly the same moment.
+    #[tokio::test]
+    async fn postgres_store_marks_a_running_run_cancelled_but_not_a_finished_one() {
+        let Ok(url) = std::env::var("TEST_POSTGRES_URL") else {
+            return;
+        };
+        let root = std::env::temp_dir().join(format!("slickchook-pg-cancel-{}", uuid::Uuid::new_v4()));
+        let run = root.join("run");
+        std::fs::create_dir_all(run.join("input")).unwrap();
+        let store = super::PostgresStore::connect(&url, root.clone(), super::DatabaseTls::Disable)
+            .await
+            .unwrap();
+        store.init_schema().await.unwrap();
+
+        let run_id = format!("cancel-{}", uuid::Uuid::new_v4());
+        store
+            .record_run(&super::StoredRun {
+                run_id: &run_id,
+                plugin: "test",
+                container: "test:latest",
+                target: None,
+                status: "running",
+                exit_code: None,
+                artifact_dir: &run,
+                stdout_path: &run.join("stdout"),
+                stderr_path: &run.join("stderr"),
+                input_json: "{}",
+                started_at: "2026-01-01T00:00:00Z",
+                finished_at: None,
+            })
+            .await
+            .unwrap();
+
+        store
+            .mark_run_cancelled(&run_id, "2026-01-01T00:00:05Z")
+            .await
+            .unwrap();
+        let rows = store.list_runs_by_target("no-such-target-cancel.example", 1).await;
+        assert!(rows.is_ok(), "mark_run_cancelled must not break the store");
+
+        // A run that already finished (not `running` anymore) must not be
+        // overwritten by a late-arriving cancel.
+        let finished_id = format!("finished-{}", uuid::Uuid::new_v4());
+        let finished_target = format!("finished-target-{}.example", uuid::Uuid::new_v4());
+        let finished_run = root.join("finished");
+        std::fs::create_dir_all(finished_run.join("input")).unwrap();
+        store
+            .record_run(&super::StoredRun {
+                run_id: &finished_id,
+                plugin: "test",
+                container: "test:latest",
+                target: Some(&finished_target),
+                status: "success",
+                exit_code: Some(0),
+                artifact_dir: &finished_run,
+                stdout_path: &finished_run.join("stdout"),
+                stderr_path: &finished_run.join("stderr"),
+                input_json: "{}",
+                started_at: "2026-01-01T00:00:00Z",
+                finished_at: Some("2026-01-01T00:00:01Z"),
+            })
+            .await
+            .unwrap();
+        store
+            .mark_run_cancelled(&finished_id, "2026-01-01T00:00:05Z")
+            .await
+            .unwrap();
+        let still_finished = store.list_runs_by_target(&finished_target, 1).await.unwrap();
+        assert_eq!(
+            still_finished[0].status, "success",
+            "mark_run_cancelled must not overwrite a run that already reached a terminal status"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Simulates the exact production incident this reconnect logic fixes:
@@ -614,7 +735,7 @@ mod tests {
                 stderr_path: &run_dir.join("stderr"),
                 input_json: "{}",
                 started_at: "now",
-                finished_at: "now",
+                finished_at: Some("now"),
             })
             .await
             .expect("record_run should also work after reconnecting (1st drop)");
@@ -646,7 +767,7 @@ mod tests {
                 stderr_path: &run_dir.join("stderr"),
                 input_json: "{}",
                 started_at: "now",
-                finished_at: "now",
+                finished_at: Some("now"),
             })
             .await
             .expect("record_run should also work after reconnecting (2nd drop)");

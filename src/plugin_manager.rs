@@ -355,6 +355,24 @@ impl PluginManager {
         input: Value,
         input_run_id: Option<&str>,
     ) -> Result<PluginRunResult> {
+        self.run_plugin_with_input_and_run_id_hook(plugin_name, input, input_run_id, None)
+            .await
+    }
+
+    /// Same as `run_plugin_with_input`, but calls `on_run_id` (if given)
+    /// synchronously the moment this run's `run_id` is generated - before
+    /// the runner/Docker are ever invoked. `start_plugin` uses this to learn
+    /// an async job's `run_id` immediately, so `plugin_cancel` can reach the
+    /// real container by its deterministic name even though the Rust task
+    /// it aborts can't reach past wherever the aborted future happened to be
+    /// stuck - see `cancel_run` and SECURITY_REVIEW_2026-10-20.md's R6.
+    pub async fn run_plugin_with_input_and_run_id_hook(
+        &self,
+        plugin_name: &str,
+        input: Value,
+        input_run_id: Option<&str>,
+        on_run_id: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    ) -> Result<PluginRunResult> {
         let plugin = self.plugin(plugin_name)?;
         let missing_secrets = missing_required_secrets(&plugin.manifest);
         if !missing_secrets.is_empty() {
@@ -374,6 +392,9 @@ impl PluginManager {
             .await
             .map_err(|_| anyhow!("run concurrency limiter closed unexpectedly"))?;
         let run_id = Uuid::new_v4().to_string();
+        if let Some(hook) = &on_run_id {
+            hook(&run_id);
+        }
         let started_at = Utc::now().to_rfc3339();
         let artifact_dir = self.artifacts_dir.join(&run_id);
         fs::create_dir_all(&artifact_dir)
@@ -386,6 +407,39 @@ impl PluginManager {
                 artifact_dir.display()
             )
         })?;
+        let stdout_path = artifact_dir.join("stdout.txt");
+        let stderr_path = artifact_dir.join("stderr.txt");
+        let target = input
+            .get("target")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+
+        // Recorded before the runner is even invoked, with no finish time
+        // yet, so this run is visible via list_runs_by_target/
+        // purge_runs_by_target regardless of what happens next - including
+        // a cancellation or crash that never reaches this function's own
+        // normal completion path below. See `record_run`'s doc comment and
+        // SECURITY_REVIEW_2026-10-20.md's R6. Best-effort: a failure here
+        // shouldn't stop the run itself from proceeding.
+        if let Err(error) = self
+            .record_run(RunRecord {
+                run_id: &run_id,
+                plugin_name,
+                container: &plugin.manifest.container,
+                target: target.as_deref(),
+                input: &input.to_string(),
+                status: "running",
+                exit_code: None,
+                artifact_dir: &artifact_dir.to_string_lossy(),
+                stdout_path: &stdout_path.to_string_lossy(),
+                stderr_path: &stderr_path.to_string_lossy(),
+                started_at: &started_at,
+                finished_at: None,
+            })
+            .await
+        {
+            warn!(run_id, %error, "failed to record run start");
+        }
 
         let input_dir = match input_run_id {
             Some(id) => Some(self.resolve_input_run(id).await?),
@@ -395,9 +449,6 @@ impl PluginManager {
             .run_runner(&plugin, &artifact_dir, &input, input_dir.as_deref())
             .await;
         let finished_at = Utc::now().to_rfc3339();
-
-        let stdout_path = artifact_dir.join("stdout.txt");
-        let stderr_path = artifact_dir.join("stderr.txt");
 
         let (status, exit_code, stdout, stderr) = match output {
             Ok(output) => {
@@ -440,10 +491,6 @@ impl PluginManager {
         let stdout_preview = output_preview(&stdout);
         let stderr_preview = diagnostic_preview(&stderr);
 
-        let target = input
-            .get("target")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
         self.record_run(RunRecord {
             run_id: &run_id,
             plugin_name,
@@ -456,7 +503,7 @@ impl PluginManager {
             stdout_path: &stdout_path.to_string_lossy(),
             stderr_path: &stderr_path.to_string_lossy(),
             started_at: &started_at,
-            finished_at: &finished_at,
+            finished_at: Some(&finished_at),
         })
         .await?;
 
@@ -474,6 +521,56 @@ impl PluginManager {
             artifact_bytes,
             artifact_oversized,
         })
+    }
+
+    /// Actually stops a cancelled run's real container, independently of
+    /// wherever the Rust-level task `plugin_cancel` aborted happened to be
+    /// stuck - aborting that task alone only stops *this process* from
+    /// waiting on the runner; the runner process and its Docker container
+    /// are otherwise untouched and keep running under their own timeout.
+    /// Best-effort throughout: a container that already exited naturally
+    /// (the run finished right as cancellation landed) makes `docker kill`
+    /// fail harmlessly, and any failure here is logged, not propagated,
+    /// since `plugin_cancel` has already told the caller the job is
+    /// cancelled by this point. Also marks the row `cancelled` in the
+    /// database if it's still `running` - see
+    /// `PostgresStore::mark_run_cancelled` and
+    /// SECURITY_REVIEW_2026-10-20.md's R6.
+    pub async fn cancel_run(&self, run_id: &str) {
+        let container_name = format!("slickchook-{run_id}");
+        let kill = time::timeout(
+            Duration::from_secs(10),
+            Command::new("docker")
+                .arg("kill")
+                .arg(&container_name)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await;
+        match kill {
+            Ok(Ok(output)) if !output.status.success() => {
+                tracing::debug!(
+                    run_id,
+                    container = %container_name,
+                    stderr = %String::from_utf8_lossy(&output.stderr),
+                    "docker kill for a cancelled job did not succeed (container may have already exited)"
+                );
+            }
+            Ok(Err(error)) => {
+                warn!(run_id, container = %container_name, %error, "failed to run docker kill for a cancelled job");
+            }
+            Err(_) => {
+                warn!(run_id, container = %container_name, "docker kill timed out for a cancelled job");
+            }
+            Ok(Ok(_)) => {}
+        }
+
+        let finished_at = Utc::now().to_rfc3339();
+        if let Err(error) = self.store.mark_run_cancelled(run_id, &finished_at).await {
+            warn!(run_id, %error, "failed to record cancelled run in database");
+        }
     }
 
     fn plugin(&self, plugin_name: &str) -> Result<Plugin> {
@@ -691,7 +788,7 @@ struct RunRecord<'a> {
     stdout_path: &'a str,
     stderr_path: &'a str,
     started_at: &'a str,
-    finished_at: &'a str,
+    finished_at: Option<&'a str>,
 }
 
 fn scan_plugins(plugins_dir: &Path) -> Result<HashMap<String, Plugin>> {
@@ -1601,7 +1698,7 @@ mod tests {
                     stderr_path: &canonical_run_dir.join("stderr.txt"),
                     input_json: "{}",
                     started_at: "2026-01-01T00:00:00Z",
-                    finished_at: "2026-01-01T00:00:01Z",
+                    finished_at: Some("2026-01-01T00:00:01Z"),
                 })
                 .await
                 .unwrap();

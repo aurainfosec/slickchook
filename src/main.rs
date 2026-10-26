@@ -99,6 +99,14 @@ struct JobState {
     /// cancelled); `None` while still running. Drives `spawn_job_sweeper`'s
     /// eviction and nothing else.
     finished_at: Option<Instant>,
+    /// Set as soon as the underlying `run_plugin_with_input_and_run_id_hook`
+    /// call generates its `run_id` - before the runner/Docker are even
+    /// invoked. Lets `plugin_cancel` call `PluginManager::cancel_run` to
+    /// actually stop the real container, not just abort this process's own
+    /// task - aborting the task alone leaves an orphaned runner/container
+    /// running under its own timeout, unreachable from here otherwise. See
+    /// SECURITY_REVIEW_2026-10-20.md's R6.
+    run_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -167,11 +175,25 @@ impl ReconServer {
             status: "running".into(),
             result: None,
             finished_at: None,
+            run_id: None,
         }));
         let task_state = Arc::clone(&state);
+        let on_run_id: Arc<dyn Fn(&str) + Send + Sync> = {
+            let state = Arc::clone(&state);
+            Arc::new(move |run_id: &str| {
+                if let Ok(mut guard) = state.lock() {
+                    guard.run_id = Some(run_id.to_string());
+                }
+            })
+        };
         let handle = tokio::spawn(async move {
             let result = manager
-                .run_plugin_with_input(&plugin, serde_json::Value::Object(input), input_run_id.as_deref())
+                .run_plugin_with_input_and_run_id_hook(
+                    &plugin,
+                    serde_json::Value::Object(input),
+                    input_run_id.as_deref(),
+                    Some(on_run_id),
+                )
                 .await
                 .map(|value| serde_json::to_string_pretty(&value).unwrap_or_else(|e| e.to_string()))
                 .unwrap_or_else(|e| format!("{{\"error\":{}}}", serde_json::json!(e.to_string())));
@@ -215,20 +237,38 @@ impl ReconServer {
         &self,
         Parameters(JobRequest { job_id }): Parameters<JobRequest>,
     ) -> Result<String, rmcp::ErrorData> {
-        let guard = self
-            .jobs
-            .lock()
-            .map_err(|_| rmcp::ErrorData::internal_error("job lock poisoned", None))?;
-        let (state, abort) = guard
-            .get(&job_id)
-            .ok_or_else(|| rmcp::ErrorData::invalid_params("unknown job", None))?;
-        abort.abort();
-        let mut state = state
-            .lock()
-            .map_err(|_| rmcp::ErrorData::internal_error("job state lock poisoned", None))?;
-        state.status = "cancelled".into();
-        state.finished_at = Some(Instant::now());
-        Ok(serde_json::json!({"job_id": job_id, "status": state.status}).to_string())
+        // Both locks are dropped before the `.await` below: a std::sync
+        // MutexGuard held across an await point would block the executor
+        // thread, and neither lock needs to stay held while `cancel_run`
+        // talks to Docker/the database anyway.
+        let run_id = {
+            let guard = self
+                .jobs
+                .lock()
+                .map_err(|_| rmcp::ErrorData::internal_error("job lock poisoned", None))?;
+            let (state, abort) = guard
+                .get(&job_id)
+                .ok_or_else(|| rmcp::ErrorData::invalid_params("unknown job", None))?;
+            abort.abort();
+            let mut state = state
+                .lock()
+                .map_err(|_| rmcp::ErrorData::internal_error("job state lock poisoned", None))?;
+            state.status = "cancelled".into();
+            state.finished_at = Some(Instant::now());
+            state.run_id.clone()
+        };
+        // Aborting the task above only stops this process from waiting on
+        // the runner - the runner process and its real Docker container are
+        // otherwise untouched and would keep running under their own
+        // timeout. `cancel_run` stops the actual container and records the
+        // cancellation in the database; it's only possible when `run_id` was
+        // already known (the run_id hook fires before the runner is even
+        // invoked, so this is `None` only in the narrow window before that -
+        // see SECURITY_REVIEW_2026-10-20.md's R6.
+        if let Some(run_id) = run_id {
+            self.plugin_manager.cancel_run(&run_id).await;
+        }
+        Ok(serde_json::json!({"job_id": job_id, "status": "cancelled"}).to_string())
     }
 
     #[tool(description = "List available recon plugins and their declared inputs")]
