@@ -144,9 +144,91 @@ struct RunnerArgs {
 
 #[tokio::main]
 async fn main() {
+    // A separate, minimal mode from the normal `--manifest ...` plugin-run
+    // path: `PluginManager::cancel_run` needs to kill a running container by
+    // name, but the *main* slickchook service process is deliberately never
+    // added to the `docker` group (see RUNNER.md) - only this setgid binary
+    // can reach the Docker socket at all. Routing the kill through here,
+    // rather than the service process invoking `docker` directly, is the
+    // actual fix; invoking `docker` from the unprivileged service process
+    // fails with a permission error that a narrow `.map_err`/`warn!` can
+    // easily look like a harmless "container already exited" case instead
+    // of the real cause (confirmed live: this exact gap shipped and the
+    // kill silently did nothing before this was added).
+    let mut args = env::args().skip(1);
+    if args.next().as_deref() == Some("--kill-container") {
+        let Some(name) = args.next() else {
+            eprintln!("--kill-container requires a container name");
+            std::process::exit(2);
+        };
+        std::process::exit(kill_container(&name).await);
+    }
+
     if let Err(error) = run().await {
         eprintln!("{error:#}");
         std::process::exit(1);
+    }
+}
+
+/// Validates `name` matches the exact shape `PluginManager::cancel_run`
+/// constructs (`slickchook-<run_id>`, `run_id` always a server-generated
+/// UUID) before running `docker kill` - this binary's setgid bit grants
+/// Docker socket access specifically so the unprivileged main service
+/// process never needs it directly; accepting an arbitrary name here would
+/// hand that privilege to whatever argv a caller supplies instead, the same
+/// class of concern `validate_runner_paths` already guards for
+/// `--manifest`/`--artifact-dir`. Returns the process exit code to use.
+/// `true` for exactly the shape `PluginManager::cancel_run` constructs
+/// (`slickchook-<run_id>`, `run_id` always a server-generated UUID) -
+/// factored out from `kill_container` so this check is directly testable
+/// without invoking `docker`.
+fn is_valid_container_name_to_kill(name: &str) -> bool {
+    match name.strip_prefix("slickchook-") {
+        Some(suffix) if !suffix.is_empty() => {
+            suffix.chars().all(|ch| ch.is_ascii_hexdigit() || ch == '-')
+        }
+        _ => false,
+    }
+}
+
+async fn kill_container(name: &str) -> i32 {
+    if !is_valid_container_name_to_kill(name) {
+        eprintln!("refusing to kill container with unexpected name `{name}`");
+        return 2;
+    }
+
+    match time::timeout(
+        Duration::from_secs(10),
+        Command::new("docker")
+            .arg("kill")
+            .arg(name)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    {
+        Ok(Ok(output)) if output.status.success() => 0,
+        Ok(Ok(output)) => {
+            // A container that already exited naturally (the run finished
+            // right as cancellation landed) is the most likely reason this
+            // fails in practice - cancel_run logs this at debug level, not
+            // as a scary warning, for exactly that reason. The real exit
+            // code (not forced to 0) and stderr both still pass through so
+            // a genuine failure isn't silently indistinguishable from that
+            // harmless case.
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            output.status.code().unwrap_or(1)
+        }
+        Ok(Err(error)) => {
+            eprintln!("failed to run docker kill: {error}");
+            1
+        }
+        Err(_) => {
+            eprintln!("docker kill timed out");
+            1
+        }
     }
 }
 
@@ -537,6 +619,20 @@ fn canonicalize_dir(path: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_valid_container_name_to_kill_matches_only_the_real_shape() {
+        assert!(is_valid_container_name_to_kill(
+            "slickchook-271c58a4-db19-4285-bbca-e2d8804c9904"
+        ));
+        assert!(!is_valid_container_name_to_kill("slickchook-"));
+        assert!(!is_valid_container_name_to_kill("not-slickchook-abc123"));
+        assert!(!is_valid_container_name_to_kill(
+            "slickchook-abc; rm -rf /"
+        ));
+        assert!(!is_valid_container_name_to_kill("other-container"));
+        assert!(!is_valid_container_name_to_kill(""));
+    }
 
     #[tokio::test]
     async fn read_capped_keeps_everything_under_the_cap() {

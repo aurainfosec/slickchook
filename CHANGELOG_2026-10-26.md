@@ -1,5 +1,39 @@
 # Changelog — 2026-10-26
 
+- Fixed `PluginManager::cancel_run` (yesterday's R6 fix, PR #149) not
+  actually stopping the real container, caught by live-verifying that fix
+  on the real deployment rather than trusting the database result alone.
+  - Cancelled a full-port-range `nmap` scan 3 seconds in: `list_runs_by_target`
+    correctly showed `status: "cancelled"`, a real `finished_at`, and
+    `exit_code: null` - the database side worked exactly as designed. But
+    `docker ps` on the host showed the container still `Up` regardless.
+  - Root cause: `cancel_run` called `Command::new("docker")` directly from
+    the *main service process*, which - per this project's own documented
+    privilege architecture - is deliberately never added to the `docker`
+    group; only the setgid `slickchook-runner` binary can reach the Docker
+    socket at all. The `docker kill` call failed with a permission error
+    that `cancel_run`'s own best-effort error handling logged at `debug!`
+    as an assumed-harmless "container may have already exited" - exactly
+    the ambiguity that log line's own comment worried about, just
+    triggered by the wrong cause.
+  - Fixed by routing the kill through a new `slickchook-runner
+    --kill-container <name>` mode instead of calling `docker` directly
+    from the service process. The mode validates the name matches the
+    exact shape `cancel_run` constructs (`slickchook-<run_id>`) before
+    running `docker kill`, the same defense-in-depth posture
+    `validate_runner_paths` already applies to
+    `--manifest`/`--artifact-dir`.
+  - Addendum added to SC-024 documenting the real finding and fix, rather
+    than silently correcting the entry - the database-only verification
+    gap is itself worth remembering, not just the bug it masked.
+  - Version bumped to 0.3.7 (compiled Rust change - needs the full `.deb`
+    rebuild/reinstall path).
+  - Verified: `cargo build --locked --release --bins` and `cargo test --lib`
+    (17/17), `cargo test --bin slickchook` (2/2), and `cargo test --bin
+    slickchook-runner` (6/6, one new) clean. Still needs the same live
+    re-check that caught the original bug: cancel another real running
+    container and confirm via `docker ps` it's actually gone this time.
+
 - Fixed cancellation not actually stopping a plugin container, and a
   cancelled or crashed run leaving no database record at all - identified
   as R6 in the independent security review (`SECURITY_REVIEW_2026-10-20.md`,

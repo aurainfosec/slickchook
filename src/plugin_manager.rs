@@ -538,10 +538,18 @@ impl PluginManager {
     /// SECURITY_REVIEW_2026-10-20.md's R6.
     pub async fn cancel_run(&self, run_id: &str) {
         let container_name = format!("slickchook-{run_id}");
+        // Routed through slickchook-runner's own `--kill-container` mode,
+        // not a direct `Command::new("docker")` call here: the main service
+        // process is deliberately never added to the `docker` group (see
+        // RUNNER.md) - only the setgid runner binary can reach the Docker
+        // socket at all. Confirmed live that calling `docker` directly from
+        // here fails with a permission error this function's own error
+        // handling could easily mistake for the harmless "container already
+        // exited" case, silently leaving the real container running.
         let kill = time::timeout(
-            Duration::from_secs(10),
-            Command::new("docker")
-                .arg("kill")
+            Duration::from_secs(15),
+            Command::new(&self.runner_path)
+                .arg("--kill-container")
                 .arg(&container_name)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -559,10 +567,10 @@ impl PluginManager {
                 );
             }
             Ok(Err(error)) => {
-                warn!(run_id, container = %container_name, %error, "failed to run docker kill for a cancelled job");
+                warn!(run_id, container = %container_name, %error, "failed to run slickchook-runner --kill-container for a cancelled job");
             }
             Err(_) => {
-                warn!(run_id, container = %container_name, "docker kill timed out for a cancelled job");
+                warn!(run_id, container = %container_name, "slickchook-runner --kill-container timed out for a cancelled job");
             }
             Ok(Ok(_)) => {}
         }
